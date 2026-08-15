@@ -288,3 +288,54 @@ do host e entregue na opção `path`. O mesmo código funciona nos dois modos.
 Quando as portas forem liberadas (ligação para o provedor) ou houver domínio próprio, o
 Modo A volta a ser preferível: `sudo ./deploy/install.sh --com-firewall` e as variáveis de
 volta para os subdomínios.
+
+---
+
+## Publicando o painel do motor de IA
+
+O painel do `ai_agent` (Next.js, porta 3000) pode ganhar URL pública pela mesma estratégia,
+numa **porta separada do Funnel** — 8443, já que o ClinicaApp ocupa a 443.
+
+Porta em vez de subcaminho porque o Next serve seus assets em `/_next/...`: montá-lo sob
+`/motor` exigiria configurar `basePath` na aplicação e refazer o build. Com porta própria
+ele é dono da raiz e nada muda no código.
+
+### Antes: entenda o que está sendo exposto
+
+As rotas administrativas do motor (`apps/api/src/http/admin.js`, 51 delas) **não têm
+autenticação nenhuma**. Por elas se leem e gravam as chaves de LLM, os tokens de bot do
+Telegram e da Meta, os fluxos, as tools e os servidores MCP. O painel foi desenhado para
+localhost.
+
+Por isso o `install.sh` põe **HTTP Basic** na frente. Não é autenticação de verdade na
+aplicação — é o mínimo que torna a exposição defensável enquanto ela não existe. A senha
+protege o painel; as rotas continuam abertas para qualquer coisa que fale direto com a
+porta 4000 dentro da VM.
+
+### Passos
+
+```bash
+sudo ./deploy/install.sh --funnel --com-painel   # pergunta usuário e senha
+sudo tailscale funnel --bg --https=8443 8081
+pm2 start deploy/ecosystem.prod.config.cjs --only motor-web
+```
+
+Fica em `https://SUA-MAQUINA.SEU-TAILNET.ts.net:8443`, pedindo usuário e senha.
+
+A senha é guardada como hash bcrypt em `/etc/caddy/conf.d/painel.caddy` (modo 640,
+`root:caddy`). Em claro ela não vai para arquivo nenhum nem para o histórico do shell.
+
+Para trocar a senha: rode `--com-painel` de novo e responda `s`.
+Para despublicar:
+
+```bash
+sudo ./deploy/install.sh --funnel --sem-painel
+sudo tailscale funnel --https=8443 off
+```
+
+### Alternativa sem exposição pública
+
+Se quem precisa do painel usa Tailscale, não publique: com a máquina no tailnet, o painel
+já é alcançável em `http://SUA-MAQUINA.SEU-TAILNET.ts.net:3000` por qualquer dispositivo
+autorizado, sem Funnel e sem senha extra. É a opção correta para um painel administrativo
+— o Funnel só se justifica quando quem acessa não pode instalar nada.

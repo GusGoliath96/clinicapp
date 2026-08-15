@@ -53,3 +53,8 @@
 		file_server
 	}
 }
+
+# Sites opcionais, gerados pelo install.sh conforme as flags. Hoje só o painel do motor
+# (`--com-painel`), que fica numa porta separada e atrás de senha. Um glob que não casa
+# nenhum arquivo é apenas um aviso no log — a config continua válida.
+import /etc/caddy/conf.d/*.caddy

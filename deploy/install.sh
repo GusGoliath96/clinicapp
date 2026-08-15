@@ -18,15 +18,18 @@ set -euo pipefail
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG=/etc/clinica-deploy.env
 COM_FIREWALL=0
+COM_PAINEL=0
 MODO=dominio
 
 for arg in "$@"; do
 	case "$arg" in
 	--com-firewall) COM_FIREWALL=1 ;;
 	--funnel) MODO=funnel ;;
+	--com-painel) COM_PAINEL=1 ;;
+	--sem-painel) COM_PAINEL=-1 ;;
 	*)
 		echo "argumento desconhecido: $arg" >&2
-		echo "uso: sudo $0 [--funnel] [--com-firewall]" >&2
+		echo "uso: sudo $0 [--funnel] [--com-firewall] [--com-painel|--sem-painel]" >&2
 		exit 1
 		;;
 	esac
@@ -104,6 +107,59 @@ fi
 mkdir -p /var/www/clinicapp
 chown -R caddy:caddy /var/www/clinicapp
 chmod -R a+rX /var/www/clinicapp
+
+# ------------------------------------------------- painel do motor (opcional)
+# O painel do ai_agent expõe 51 rotas administrativas SEM autenticação nenhuma: por elas
+# se leem e gravam as chaves de LLM, os tokens de bot do Telegram e da Meta, os fluxos e
+# os servidores MCP. Ele foi desenhado para rodar em localhost.
+#
+# Publicá-lo exige, no mínimo, uma senha na frente — é o que este bloco faz, com HTTP Basic
+# no Caddy. Não substitui autenticação de verdade na aplicação; é o mínimo que torna a
+# exposição defensável enquanto ela não existe.
+mkdir -p /etc/caddy/conf.d
+if [[ $COM_PAINEL -eq 1 ]]; then
+	echo "==> Configurando o painel do motor (porta 8081, protegido por senha)"
+	if [[ -f /etc/caddy/conf.d/painel.caddy ]]; then
+		read -rp "    Já existe uma senha configurada. Trocar? [s/N] " trocar
+		[[ "${trocar,,}" == "s" ]] || COM_PAINEL=2
+	fi
+	if [[ $COM_PAINEL -eq 1 ]]; then
+		read -rp "    Usuário do painel [admin]: " painel_user
+		painel_user=${painel_user:-admin}
+		read -rsp "    Senha do painel: " painel_senha
+		echo
+		if [[ ${#painel_senha} -lt 8 ]]; then
+			echo "ERRO: use pelo menos 8 caracteres." >&2
+			exit 1
+		fi
+		# hash bcrypt; a senha em claro não vai para arquivo nem para o histórico do shell
+		painel_hash=$(caddy hash-password --plaintext "$painel_senha")
+		unset painel_senha
+
+		cat >/etc/caddy/conf.d/painel.caddy <<CADDY
+# Painel administrativo do motor de IA (ai_agent, Next.js na 3000).
+# Gerado por deploy/install.sh --com-painel. Publicado pelo Funnel na porta 8443.
+:8081 {
+	encode gzip zstd
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+	basic_auth {
+		$painel_user $painel_hash
+	}
+	reverse_proxy localhost:3000
+}
+CADDY
+		chmod 640 /etc/caddy/conf.d/painel.caddy
+		chown root:caddy /etc/caddy/conf.d/painel.caddy
+	fi
+elif [[ $COM_PAINEL -eq -1 ]]; then
+	echo "==> Removendo a publicação do painel do motor"
+	rm -f /etc/caddy/conf.d/painel.caddy
+fi
 
 echo "==> Validando o Caddyfile"
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
@@ -216,6 +272,18 @@ Caddy configurado no modo Funnel, escutando em localhost:8080.
  5. Testar de fora (dados móveis):  https://<hostname>
 
  Hostname detectado agora: ${ts_host:-(Tailscale ainda não conectado)}
+
+$(if [[ -f /etc/caddy/conf.d/painel.caddy ]]; then
+		cat <<PAINEL
+ PAINEL DO MOTOR publicado na porta 8443 (atrás de senha). Para ativar:
+      sudo tailscale funnel --bg --https=8443 8081
+      https://${ts_host:-<hostname>}:8443
+
+ Requer o painel rodando: pm2 start deploy/ecosystem.prod.config.cjs --only motor-web
+PAINEL
+	else
+		echo " Painel do motor NÃO publicado. Para publicar: sudo \$0 --funnel --com-painel"
+	fi)
 
  Logs do Caddy: journalctl -u caddy -f
 ==================================================================
