@@ -19,7 +19,14 @@ fi
 
 echo "==> Build do frontend"
 cd "$FRONT"
-npm ci --omit=dev 2>/dev/null || npm install
+# Instalação COMPLETA, com devDependencies: o vite é quem faz o build e vive em
+# devDependencies. Um --omit=dev aqui derruba a build com "vite: not found".
+# O que não vai para produção é o resultado — o dist/ é estático e não carrega nada disto.
+if [[ -f package-lock.json ]]; then
+	npm ci
+else
+	npm install
+fi
 npm run build
 
 echo "==> Publicando em $DESTINO"
