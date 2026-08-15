@@ -6,7 +6,17 @@ let socket = null;
 export function getSocket() {
   const token = localStorage.getItem('token');
   if (!socket) {
-    socket = io(import.meta.env.VITE_API_URL || 'http://localhost:3000', {
+    // A API pode estar num host próprio ("https://api.exemplo.com") ou atrás de um prefixo
+    // de caminho ("https://host/api") quando tudo entra por um hostname só. O socket.io-client
+    // NÃO aceita a segunda forma direto: ele leria "/api" como *namespace* e continuaria
+    // procurando o handshake em "/socket.io" na raiz. Por isso o prefixo é separado à mão e
+    // entregue como `path`.
+    const base = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+    const url = new URL(base, window.location.origin);
+    const prefixo = url.pathname.replace(/\/+$/, '');
+
+    socket = io(url.origin, {
+      path: `${prefixo}/socket.io`,
       auth: { token },
       autoConnect: true,
     });

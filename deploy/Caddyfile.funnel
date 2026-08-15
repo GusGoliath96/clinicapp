@@ -1,0 +1,55 @@
+# Caddy no modo TAILSCALE FUNNEL.
+#
+# Use este arquivo quando o provedor bloqueia conexões de entrada nas portas 80/443 —
+# situação da Vivo Fibra residencial, onde o desafio ACME falha com "Timeout during
+# connect" mesmo com o encaminhamento do roteador correto.
+#
+# Aqui o Caddy NÃO fala com a internet e NÃO emite certificado: quem faz isso é o
+# Tailscale, que termina o TLS no hostname *.ts.net e entrega HTTP puro nesta porta.
+# Por isso `auto_https off` — deixar ligado faria o Caddy tentar emitir certificados
+# que jamais seriam validados.
+#
+#   sudo ./deploy/install.sh --funnel
+#   sudo tailscale funnel --bg 8080
+#
+# Diferença central para o Caddyfile de domínio próprio: lá são três hostnames
+# (app./api./motor.), aqui é UM só, porque o Funnel expõe um hostname por máquina.
+# Os serviços viram caminhos.
+{
+	auto_https off
+}
+
+:8080 {
+	encode gzip zstd
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+	# Sem HSTS: o Tailscale já serve só HTTPS no hostname público, e o cabeçalho aqui
+	# valeria para o *.ts.net inteiro — inclusive outras máquinas do seu tailnet.
+
+	# API do ClinicaApp. O handle_path REMOVE o /api antes de repassar, então o backend
+	# continua vendo /auth/login, /patients, /socket.io — sem saber que existe prefixo.
+	# É o que permite não mexer em nenhuma rota do Express.
+	#
+	# O WebSocket do Socket.IO passa por aqui também (/api/socket.io/*): o reverse_proxy
+	# do Caddy faz o upgrade sozinho, e o frontend monta esse caminho em realtime/socket.js.
+	handle_path /api/* {
+		reverse_proxy localhost:3100
+	}
+
+	# O motor de IA NÃO é publicado. Com Telegram o fluxo é long-polling — o motor busca as
+	# mensagens, ninguém precisa alcançá-lo de fora. Se um dia voltar o WhatsApp da Meta,
+	# aí sim será preciso um caminho público para o webhook (ver Caddyfile de domínio próprio).
+
+	# Tudo o mais é o SPA. O try_files devolve o index.html para as rotas do Vue Router
+	# (/agenda, /pacientes...), que não existem como arquivo em disco.
+	handle {
+		root * /var/www/clinicapp
+		try_files {path} /index.html
+		file_server
+	}
+}

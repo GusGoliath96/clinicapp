@@ -42,7 +42,12 @@ Este plano depende de encaminhar as portas 80/443. Entre no roteador e veja o IP
 | IP da WAN | Situação | O que fazer |
 |---|---|---|
 | Igual ao que aparece em `curl https://api.ipify.org` | IP público | Siga este guia |
-| `100.64.x.x` a `100.127.x.x` | CGNAT | Peça IP público à operadora (costuma ser grátis) ou use o **Plano B** no fim deste arquivo |
+| `100.64.x.x` a `100.127.x.x` | CGNAT | Peça IP público à operadora (costuma ser grátis) ou use o **Modo B** no fim deste arquivo |
+
+**Atenção:** ter IP público não basta. Muitos provedores residenciais — a Vivo Fibra entre
+eles — bloqueiam conexões de **entrada** nas portas 80 e 443, mesmo com IP público e
+encaminhamento correto. Isso só aparece quando o Let's Encrypt falha, e a saída é o
+**Modo B**. Se quiser descobrir antes de configurar tudo, o teste está no fim do arquivo.
 
 ---
 
@@ -206,20 +211,80 @@ hairpin NAT e você vê um falso negativo):
 
 ---
 
-## Plano B — Tailscale Funnel (se estiver atrás de CGNAT)
+## Modo B — Tailscale Funnel (sem porta aberta)
 
-Funciona sem abrir porta nenhuma e sem IP público, com HTTPS válido num hostname
-`*.ts.net`. Em troca: tráfego relayado (mais lento) e URL feia.
+Use este modo quando o provedor **bloqueia conexões de entrada** nas portas 80/443 — o caso
+da Vivo Fibra residencial. O sintoma é inconfundível: encaminhamento do roteador correto,
+hairpin funcionando, e mesmo assim o Let's Encrypt falha com
 
-```bash
-sudo tailscale up
-sudo tailscale funnel --bg --set-path /webhook 4000    # webhook da Meta
-sudo tailscale funnel status                           # mostra o hostname público
+```
+"179.x.x.x: Timeout during connect (likely firewall problem)"
 ```
 
-O hostname sai no formato `vm.tailXXXX.ts.net` — use-o no lugar de
-`motor.SEUNOME.duckdns.org` no painel da Meta e em `PUBLIC_BASE_URL`. O Funnel só aceita as
-portas 443, 8443 e 10000, então o ClinicaApp precisa entrar por caminho
-(`--set-path /api 3100`) em vez de subdomínio, e o `VITE_API_URL` muda junto.
+e `sudo find /var/lib/caddy -name '*.crt'` não devolve arquivo nenhum. Também serve para
+CGNAT, pelo mesmo motivo: nada depende de porta aberta.
 
-O resto deste guia (envs, PM2, checklist de segurança) continua valendo igual.
+O Tailscale abre uma conexão de **saída** e o tráfego público volta por dentro dela, com
+HTTPS válido num hostname `*.ts.net`. Em troca: tráfego relayado (mais lento) e URL feia.
+
+### Diferença de arquitetura
+
+O Funnel expõe **um hostname por máquina**, não três. Então os serviços deixam de ser
+subdomínios e viram caminhos, com o Caddy fazendo o roteamento:
+
+```
+https://maquina.tailXXXX.ts.net/          -> SPA (arquivos estáticos)
+https://maquina.tailXXXX.ts.net/api/*     -> ClinicaApp API (o /api é removido pelo Caddy)
+```
+
+O motor de IA **não é publicado**. Com Telegram o fluxo é long-polling — o motor busca as
+mensagens sozinho e ninguém precisa alcançá-lo de fora. (Só o WhatsApp da Meta exigiria um
+webhook público; se ele voltar, será preciso um caminho a mais.)
+
+### Passo a passo
+
+```bash
+sudo tailscale up                          # autentica a máquina no seu tailnet
+sudo ./deploy/install.sh --funnel --com-firewall
+sudo tailscale funnel --bg 8080            # publica o Caddy na internet
+sudo tailscale funnel status               # mostra o hostname público
+```
+
+Com o hostname em mãos, ajuste as duas variáveis e republique:
+
+```ini
+# backend/.env
+CORS_ORIGIN=https://maquina.tailXXXX.ts.net
+
+# frontend/.env.production
+VITE_API_URL=https://maquina.tailXXXX.ts.net/api
+```
+
+```bash
+./deploy/publicar-frontend.sh
+pm2 restart clinicapp-api --update-env
+```
+
+> O `VITE_API_URL` é embutido no bundle em tempo de build — trocar exige rodar o
+> `publicar-frontend.sh` de novo, não basta reiniciar nada.
+
+### O que muda no código
+
+Nada nas rotas do Express: o `handle_path /api/*` do Caddy remove o prefixo antes de
+repassar, então o backend continua vendo `/auth/login` e `/patients` como sempre.
+
+A única adaptação real está em `frontend/src/realtime/socket.js`. O socket.io-client não
+aceita um prefixo de caminho na URL de conexão — ele leria `/api` como *namespace* e
+continuaria procurando o handshake em `/socket.io` na raiz. Por isso o prefixo é separado
+do host e entregue na opção `path`. O mesmo código funciona nos dois modos.
+
+### Limites do Funnel
+
+- Só as portas **443, 8443 e 10000** podem ser publicadas
+- O tráfego passa pela infraestrutura do Tailscale: bom para demonstração, não para
+  produção com volume
+- O hostname é derivado do nome da máquina e do seu tailnet — não é escolhível
+
+Quando as portas forem liberadas (ligação para o provedor) ou houver domínio próprio, o
+Modo A volta a ser preferível: `sudo ./deploy/install.sh --com-firewall` e as variáveis de
+volta para os subdomínios.
