@@ -1,0 +1,17 @@
+[Unit]
+Description=Atualiza o IP do domínio DuckDNS
+Documentation=https://www.duckdns.org/spec.jsp
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/clinica-deploy.env
+ExecStart=/usr/local/bin/duckdns-update.sh
+# Não precisa de privilégio nenhum: é um curl. Roda como usuário dedicado sem shell.
+User=duckdns
+Group=duckdns
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true

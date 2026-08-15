@@ -1,0 +1,88 @@
+# Caddy — porta de entrada única da VM.
+#
+# Emite e renova os certificados Let's Encrypt sozinho (desafio HTTP-01 na porta 80), então
+# as portas 80 E 443 precisam estar encaminhadas do roteador para esta máquina. A 80 não
+# serve conteúdo: só o desafio e o redirect para HTTPS, que o Caddy já faz por padrão.
+#
+# As variáveis {$...} vêm de /etc/clinica-deploy.env (ver deploy.env.example).
+{
+	email {$ACME_EMAIL}
+	# Sem servidor "default": um host desconhecido (scanner batendo no IP puro) leva 404
+	# em vez de cair em algum dos sites abaixo.
+}
+
+(seguranca) {
+	header {
+		# 6 meses. Só depois de confirmar que tudo funciona em HTTPS — HSTS é difícil de
+		# desfazer, o navegador lembra pelo tempo do max-age.
+		Strict-Transport-Security "max-age=15552000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}
+
+# ---------------------------------------------------------------------------
+# SPA do ClinicaApp — arquivos estáticos, servidos direto pelo Caddy.
+# Não há processo Node para o frontend em produção: o `npm run build` gera o dist/ e ele
+# é servido daqui (o Vite dev server da porta 5173 é só para desenvolvimento).
+#
+# A raiz é /var/www/clinicapp, e não o dist/ dentro do /home: o serviço do Caddy roda como
+# usuário `caddy` com ProtectHome=true, que esconde /home inteiro dele. Publique com
+# `deploy/publicar-frontend.sh`, que faz o build e copia para cá.
+# ---------------------------------------------------------------------------
+app.{$DOMINIO_BASE} {
+	import seguranca
+	encode gzip zstd
+	root * /var/www/clinicapp
+	# Fallback do Vue Router: /agenda, /pacientes... não existem como arquivo, o index.html
+	# é quem resolve a rota no navegador.
+	try_files {path} /index.html
+	file_server
+}
+
+# ---------------------------------------------------------------------------
+# API do ClinicaApp (Express + Socket.IO na 3100).
+# O reverse_proxy do Caddy já faz o upgrade de WebSocket sozinho — o /socket.io passa sem
+# configuração extra.
+#
+# NOTA sobre /webhooks/ai-engine: hoje o motor roda na MESMA VM e pode chamar o ClinicaApp
+# por localhost:3100, sem passar por aqui. Se você configurar o callback do motor com a URL
+# pública, ele entra por este host — o endpoint valida HMAC (X-Signature-256), então é
+# seguro. Se preferir fechar, descomente o bloco @interno abaixo.
+# ---------------------------------------------------------------------------
+api.{$DOMINIO_BASE} {
+	import seguranca
+	encode gzip zstd
+
+	# @interno path /webhooks/*
+	# respond @interno 404
+
+	reverse_proxy localhost:3100
+}
+
+# ---------------------------------------------------------------------------
+# Motor de IA (ai_agent, porta 4000) — superfície pública mínima.
+#
+# Só dois caminhos saem para a internet:
+#   /webhook          -> exigido pela Meta (WhatsApp Cloud API), valida X-Hub-Signature-256
+#   /api/v1/media/*   -> download de mídia, já protegido por API key (requireApiKey)
+#
+# Tudo o mais (POST /api/v1/messages, rotas de admin) responde 404 de fora. O ClinicaApp
+# fala com o motor por localhost:4000 e não é afetado; o painel Next (porta 3000) não é
+# publicado aqui — acesso só pela VPN (Tailscale).
+# ---------------------------------------------------------------------------
+motor.{$DOMINIO_BASE} {
+	import seguranca
+	encode gzip zstd
+
+	@publico path /webhook /webhook/* /api/v1/media/*
+	handle @publico {
+		reverse_proxy localhost:4000
+	}
+
+	handle {
+		respond 404
+	}
+}

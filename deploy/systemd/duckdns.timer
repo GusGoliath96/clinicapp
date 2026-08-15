@@ -1,0 +1,13 @@
+[Unit]
+Description=Atualiza o DuckDNS a cada 5 minutos
+
+[Timer]
+# Logo no boot (o IP costuma mudar justamente quando o link cai e volta) e depois de 5 em
+# 5 minutos. Esse é o tempo máximo de indisponibilidade após uma troca de IP.
+OnBootSec=1min
+OnUnitActiveSec=5min
+# Sem randomização: 5 min já é folgado para o DuckDNS e queremos o pior caso previsível.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

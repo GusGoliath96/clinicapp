@@ -1,0 +1,18 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: clinicapp-db
+    environment:
+      POSTGRES_USER: clinicapp
+      POSTGRES_PASSWORD: clinicapp
+      POSTGRES_DB: clinicapp
+    ports:
+      # Bind só no loopback: sem o "127.0.0.1:" o Docker publica em 0.0.0.0 e cria uma regra
+      # de DNAT que passa por cima do ufw — o Postgres ficaria alcançável da rede/internet
+      # mesmo com o firewall fechado.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - clinicapp_pgdata:/var/lib/postgresql/data
+
+volumes:
+  clinicapp_pgdata:
