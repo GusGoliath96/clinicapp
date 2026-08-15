@@ -24,6 +24,15 @@
 }
 
 # ---------------------------------------------------------------------------
+# Domínio sem prefixo — quem digita "clinicatop.duckdns.org" na barra cai no app.
+# Sem este bloco o apex não tem site nenhum: o HTTP redireciona para HTTPS e lá o
+# handshake falha, porque não existe certificado emitido para ele.
+# ---------------------------------------------------------------------------
+{$DOMINIO_BASE} {
+	redir https://app.{$DOMINIO_BASE}{uri} permanent
+}
+
+# ---------------------------------------------------------------------------
 # SPA do ClinicaApp — arquivos estáticos, servidos direto pelo Caddy.
 # Não há processo Node para o frontend em produção: o `npm run build` gera o dist/ e ele
 # é servido daqui (o Vite dev server da porta 5173 é só para desenvolvimento).

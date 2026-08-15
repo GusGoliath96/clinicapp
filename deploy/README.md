@@ -156,7 +156,7 @@ npm run prisma:migrate && npm run build --workspace apps/web
 cd ~/clinicapp/backend && npm install && npm run db:setup
 cd ~/clinicapp && ./deploy/publicar-frontend.sh
 
-pm2 start deploy/ecosystem.prod.cjs
+pm2 start deploy/ecosystem.prod.config.cjs
 pm2 save && pm2 startup      # rode o comando que o startup imprimir
 ```
 

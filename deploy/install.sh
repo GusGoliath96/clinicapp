@@ -130,7 +130,7 @@ Infra pronta. Falta o que só você pode fazer:
       ./deploy/publicar-frontend.sh
 
  4. Subir as aplicações:
-      pm2 start deploy/ecosystem.prod.cjs && pm2 save
+      pm2 start deploy/ecosystem.prod.config.cjs && pm2 save
 
  5. Testar de FORA da sua rede (dados móveis, não o wi-fi de casa):
       https://app.${DOMINIO_BASE}
