@@ -1,24 +1,39 @@
 import jwt from 'jsonwebtoken';
+import { query } from '../config/db.js';
 import { env } from '../config/env.js';
 
 // Verifica o JWT e injeta req.user = { id, tenantId, papel }.
 // Todas as queries devem escopar por req.user.tenantId.
-export function requireAuth(req, res, next) {
+export async function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
   if (!token) return res.status(401).json({ error: 'Token ausente' });
+
+  let payload;
   try {
-    const payload = jwt.verify(token, env.jwtSecret);
-    req.user = { id: payload.sub, tenantId: payload.tenantId, papel: payload.papel };
-    next();
+    payload = jwt.verify(token, env.jwtSecret);
   } catch {
-    res.status(401).json({ error: 'Token inválido' });
+    return res.status(401).json({ error: 'Token inválido' });
   }
+
+  // A assinatura sozinha não basta: um JWT vale 7 dias e continuaria válido depois de
+  // trocar a senha ou desativar o usuário. token_version é o que permite derrubar sessões.
+  const { rows } = await query(
+    'SELECT token_version, ativo FROM users WHERE id = $1',
+    [payload.sub],
+  );
+  const user = rows[0];
+  if (!user || !user.ativo || user.token_version !== payload.tv) {
+    return res.status(401).json({ error: 'Sessão expirada' });
+  }
+
+  req.user = { id: payload.sub, tenantId: payload.tenantId, papel: payload.papel };
+  next();
 }
 
 export function signToken(user) {
   return jwt.sign(
-    { sub: user.id, tenantId: user.tenant_id, papel: user.papel },
+    { sub: user.id, tenantId: user.tenant_id, papel: user.papel, tv: user.token_version },
     env.jwtSecret,
     { expiresIn: env.jwtExpiresIn },
   );

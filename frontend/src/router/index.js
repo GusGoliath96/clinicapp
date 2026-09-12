@@ -12,7 +12,21 @@ const ph = (slug, title, sub, soon = true) => ({
 
 const routes = [
   { path: '/', redirect: '/recepcao' },
-  { path: '/login', component: () => import('../views/Login.vue'), meta: { public: true } },
+
+  // Telas de autenticação: public as tira do shell (sem sidebar nem topbar).
+  { path: '/login', name: 'login', component: () => import('../views/Login.vue'), meta: { public: true } },
+  {
+    path: '/verificar-codigo', name: 'verificar-codigo',
+    component: () => import('../views/CodigoVerificacao.vue'), meta: { public: true },
+  },
+  {
+    path: '/esqueci-senha', name: 'esqueci-senha',
+    component: () => import('../views/EsqueciSenha.vue'), meta: { public: true },
+  },
+  {
+    path: '/redefinir-senha', name: 'redefinir-senha',
+    component: () => import('../views/RedefinirSenha.vue'), meta: { public: true },
+  },
 
   {
     path: '/recepcao', name: 'recepcao',

@@ -13,9 +13,13 @@ const form = ref(null); // objeto de edição/criação
 const editando = computed(() => Boolean(form.value?.id));
 
 async function carregar() {
-  const [u, p] = await Promise.all([api.get('/users'), api.get('/professionals')]);
-  usuarios.value = u.data;
-  profissionais.value = p.data;
+  try {
+    const [u, p] = await Promise.all([api.get('/users'), api.get('/professionals')]);
+    usuarios.value = u.data;
+    profissionais.value = p.data;
+  } catch (e) {
+    erro.value = e.response?.data?.error || 'Não foi possível carregar os usuários.';
+  }
 }
 
 function novo() { erro.value = ''; form.value = { nome: '', email: '', papel: 'recepcao', senha: '', ativo: true, professional_id: '' }; }

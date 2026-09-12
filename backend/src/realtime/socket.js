@@ -1,5 +1,6 @@
 import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
+import { query } from '../config/db.js';
 import { env } from '../config/env.js';
 
 let io = null;
@@ -8,10 +9,22 @@ let io = null;
 export function initSocket(httpServer) {
   io = new Server(httpServer, { cors: { origin: env.corsOrigin } });
 
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     const token = socket.handshake.auth?.token;
     try {
       const payload = jwt.verify(token, env.jwtSecret);
+
+      // Mesma revogação do requireAuth. Sem isto o socket seria a porta de trás: um token
+      // já derrubado continuaria recebendo mensagens e agenda do tenant em tempo real.
+      const { rows } = await query(
+        'SELECT token_version, ativo FROM users WHERE id = $1',
+        [payload.sub],
+      );
+      const user = rows[0];
+      if (!user || !user.ativo || user.token_version !== payload.tv) {
+        return next(new Error('unauthorized'));
+      }
+
       socket.data.tenantId = payload.tenantId;
       socket.join(`tenant:${payload.tenantId}`);
       next();

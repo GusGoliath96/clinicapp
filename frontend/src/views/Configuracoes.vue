@@ -1,17 +1,25 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { api } from '../api/client.js';
+import { useAuth } from '../stores/auth.js';
 import ProfessionalForm from '../components/ProfessionalForm.vue';
 import ClinicaConfig from '../components/config/ClinicaConfig.vue';
 import UsuariosConfig from '../components/config/UsuariosConfig.vue';
 import ConveniosConfig from '../components/config/ConveniosConfig.vue';
 
+const auth = useAuth();
+
 const ABAS = [
   { id: 'clinica', icon: '🏢', label: 'Clínica' },
   { id: 'profissionais', icon: '👤', label: 'Profissionais' },
-  { id: 'usuarios', icon: '🔑', label: 'Usuários' },
+  { id: 'usuarios', icon: '🔑', label: 'Usuários', somenteAdmin: true },
   { id: 'convenios', icon: '💳', label: 'Convênios' },
 ];
+
+// /users passou a exigir papel admin. Mostrar a aba para os demais só renderizaria uma
+// tela que responde 403 — quem não pode gerenciar usuários não precisa nem vê-la.
+const abas = computed(() => ABAS.filter((a) => !a.somenteAdmin || auth.user?.papel === 'admin'));
+
 const aba = ref('clinica');
 
 const profissionais = ref([]);
@@ -61,7 +69,7 @@ onMounted(carregar);
 
 <template>
   <div class="conf-tabs">
-    <button v-for="a in ABAS" :key="a.id" class="conf-tab" :class="{ active: aba === a.id }" @click="aba = a.id">
+    <button v-for="a in abas" :key="a.id" class="conf-tab" :class="{ active: aba === a.id }" @click="aba = a.id">
       {{ a.icon }} {{ a.label }}
     </button>
   </div>

@@ -33,7 +33,9 @@ cd backend  && npm run dev     # http://localhost:3000
 cd frontend && npm run dev     # http://localhost:5173
 ```
 
-Login de demonstração (do seed): **admin@macs.com.br** / **123456**.
+O primeiro acesso vem de `SEED_ADMIN_EMAIL` no `backend/.env`: o `db:setup` cria o admin
+(e um usuário médico no alias `+medico`) e imprime a senha gerada **uma única vez**. Se
+perder, `npm run auth:admin -- <email>` gera outra.
 
 > Se num terminal novo o `node` não for encontrado, carregue o nvm:
 > `export NVM_DIR="$HOME/.nvm" && . "$NVM_DIR/nvm.sh"`.
@@ -45,10 +47,40 @@ projeto.
 Outros comandos:
 
 ```bash
-cd backend  && npm run db:setup   # re-aplica schema.sql + seed.sql (idempotente)
-cd backend  && npm run db:senha -- admin@macs.com.br 'senha-forte'
-cd frontend && npm run build      # build estático em frontend/dist/
+cd backend  && npm run db:setup                    # re-aplica schema.sql + seed.sql (idempotente)
+cd backend  && npm run auth:admin -- <email>       # cria/reseta usuário com senha aleatória
+cd backend  && npm run db:senha -- <email> 'senha' # idem, escolhendo a senha
+cd backend  && npm run auth:token -- <email>       # emite JWT sem login (emergência do 2FA)
+cd backend  && npm run mail:teste -- <email>       # confere se o envio de e-mail funciona
+cd frontend && npm run build                       # build estático em frontend/dist/
 ```
+
+## Autenticação
+
+O login tem senha (bcrypt), segundo fator por e-mail e recuperação de senha.
+
+- **Segundo fator** — com `TWO_FACTOR=on`, o login manda um código de 6 dígitos por e-mail.
+  Marcar "confiar neste dispositivo" grava um cookie `HttpOnly` de 30 dias e o código deixa
+  de ser pedido naquele navegador. O JWT continua no `localStorage`; o segundo fator não,
+  de propósito — senão um XSS desligaria o 2FA de forma permanente.
+- **E-mail** — `RESEND_API_KEY` no `.env`. Sem ela o código e o link são impressos no
+  console do backend, o que basta para desenvolver. Confirme a entrega com
+  `npm run mail:teste` **antes** de ligar `TWO_FACTOR=on`: com o 2FA ligado e o e-mail fora
+  do ar, ninguém entra — a saída é `npm run auth:token`.
+  > Enquanto o `MAIL_FROM` for `onboarding@resend.dev`, o Resend **só entrega no endereço
+  > dono da conta** — nem aliases `+` dele passam. Na prática, só esse usuário consegue
+  > receber código ou link; para os demais, use `npm run auth:token -- <email>`. Verificar
+  > um domínio em resend.com/domains remove a restrição e é o que produção exige.
+- **Força bruta** — limite por IP em memória, mais bloqueio por (e-mail, IP) no Postgres
+  (`login_attempts`). A chave é o par, não o e-mail sozinho: assim ninguém tranca a conta
+  do admin de fora só para causar dano.
+- **Revogação** — `users.token_version` entra no JWT. Trocar a senha, mudar o papel ou
+  desativar o usuário derruba as sessões abertas, inclusive o Socket.IO.
+- **Papéis** — `/users` exige papel `admin`; a aba Usuários some para os demais.
+
+> Senha em claro nunca é enviada pelo front nem gravada em log: o transporte é protegido
+> por TLS (Caddy), e o hash fica só no servidor. Hashear no navegador não substituiria o
+> TLS — o hash passaria a *ser* a senha para quem o interceptasse.
 
 ## Arquitetura
 

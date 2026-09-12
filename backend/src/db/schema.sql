@@ -253,3 +253,62 @@ CREATE TABLE IF NOT EXISTS convenios (
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_convenios_tenant ON convenios (tenant_id);
+
+-- ─── Autenticação ───────────────────────────────────────────────────────────
+
+-- Desafios efêmeros: código de 2FA e token de redefinição de senha. As duas coisas têm a
+-- mesma forma (segredo com validade e uso único), então moram na mesma tabela.
+-- O segredo nunca é gravado em claro; o id da linha entra no hash para que os 10^6 códigos
+-- possíveis não possam ser quebrados de uma vez por uma tabela pré-calculada.
+CREATE TABLE IF NOT EXISTS auth_challenges (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id    UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  tipo         TEXT NOT NULL,                  -- 2fa | reset
+  codigo_hash  TEXT NOT NULL,
+  expires_at   TIMESTAMPTZ NOT NULL,
+  used_at      TIMESTAMPTZ,
+  tentativas   INTEGER NOT NULL DEFAULT 0,
+  ip           TEXT,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_auth_challenges_user ON auth_challenges (user_id, tipo, created_at DESC);
+
+-- Dispositivos que já passaram pelo 2FA e não precisam do código por 30 dias.
+-- O segredo correspondente vai num cookie HttpOnly: se ficasse no localStorage junto do
+-- JWT, um XSS desligaria o segundo fator de forma permanente.
+CREATE TABLE IF NOT EXISTS trusted_devices (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id    UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash   TEXT NOT NULL,
+  rotulo       TEXT,
+  expires_at   TIMESTAMPTZ NOT NULL,
+  last_used_at TIMESTAMPTZ,
+  revoked_at   TIMESTAMPTZ,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_trusted_devices_hash ON trusted_devices (token_hash);
+
+-- Tentativas de login, para detectar força bruta. Tabela própria em vez de audit_log
+-- porque aqui tenant_id e user_id precisam ser nulos: numa tentativa com e-mail que não
+-- existe não há nem tenant nem usuário a registrar.
+CREATE TABLE IF NOT EXISTS login_attempts (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email       TEXT,
+  user_id     UUID REFERENCES users(id) ON DELETE SET NULL,
+  tenant_id   UUID REFERENCES tenants(id) ON DELETE SET NULL,
+  ip          TEXT NOT NULL,
+  sucesso     BOOLEAN NOT NULL DEFAULT false,
+  motivo      TEXT,                            -- senha | usuario | inativo | 2fa | bloqueado
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_login_attempts_email ON login_attempts (email, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_login_attempts_ip    ON login_attempts (ip, created_at DESC);
+
+-- token_version invalida JWTs já emitidos (troca de senha, desativação, mudança de papel).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version     INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS senha_alterada_em TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS ultimo_login_em   TIMESTAMPTZ;
+-- O login busca por lower(email); sem este índice a busca faz varredura na tabela.
+CREATE INDEX IF NOT EXISTS idx_users_email_lower ON users (lower(email));

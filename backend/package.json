@@ -8,13 +8,20 @@
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
     "db:setup": "node src/db/setup.js",
-    "db:senha": "node src/db/trocar-senha.js"
+    "db:senha": "node src/db/trocar-senha.js",
+    "auth:admin": "node src/db/criar-admin.js",
+    "auth:token": "node src/db/emitir-token.js",
+    "mail:teste": "node src/db/testar-email.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "express-async-errors": "^3.1.1",
+    "express-rate-limit": "^8.7.0",
+    "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.2",
     "pg": "^8.12.0",
     "socket.io": "^4.7.5"

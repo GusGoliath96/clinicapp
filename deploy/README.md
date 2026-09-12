@@ -188,9 +188,13 @@ hairpin NAT e você vê um falso negativo):
 
 ## Checklist de segurança antes de mostrar para o Diego
 
-- [ ] **Senha do admin trocada.** O seed cria `admin@macs.com.br` / `123456`:
-      `cd backend && npm run db:senha -- admin@macs.com.br 'senha-forte'`
-- [ ] `JWT_SECRET` gerado (o default do código é `dev-secret`)
+- [ ] **`SEED_ADMIN_EMAIL` apontando para um e-mail real que você controla.** Com 2FA
+      ligado, o código vai para essa caixa — um domínio de demonstração tranca você fora.
+- [ ] `RESEND_API_KEY` configurada e `npm run mail:teste -- <email>` entregando de verdade,
+      **antes** de `TWO_FACTOR=on`. Sem isso o 2FA obrigatório impede qualquer login
+      (a saída de emergência é `npm run auth:token -- <email>`, rodado na VM)
+- [ ] `APP_URL` apontando para o domínio público do SPA (entra no link de redefinição)
+- [ ] `JWT_SECRET` gerado — em produção o backend **se recusa a subir** sem ele
 - [ ] `TOOLS_EGRESS_ALLOW_PRIVATE=0` + allowlist no motor
 - [ ] Bancos escutando só em loopback (já corrigido nos dois `docker-compose.yml`) —
       confira com `sudo ss -tlnp | grep -E '5432|55432|6380'`
