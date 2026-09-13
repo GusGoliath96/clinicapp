@@ -8,10 +8,10 @@
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
     "db:setup": "node src/db/setup.js",
-    "db:senha": "node src/db/trocar-senha.js",
-    "auth:admin": "node src/db/criar-admin.js",
-    "auth:token": "node src/db/emitir-token.js",
-    "mail:teste": "node src/db/testar-email.js"
+    "db:senha": "node src/db/set-password.js",
+    "auth:admin": "node src/db/create-admin.js",
+    "auth:token": "node src/db/issue-token.js",
+    "mail:teste": "node src/db/test-email.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
