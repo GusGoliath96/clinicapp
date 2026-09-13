@@ -1,22 +1,22 @@
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue';
 import { api } from '../api/client.js';
-import { iniciais, corDe } from '../utils/ui.js';
+import { initials, colorFor } from '../utils/ui.js';
 import PatientForm from './PatientForm.vue';
 
 const props = defineProps({ patientId: { type: String, required: true } });
 const emit = defineEmits(['close', 'edited']);
 
-const editando = ref(false);
+const editing = ref(false);
 const novaTag = ref('');
 
 function onEditado(data) {
   paciente.value = data;
-  editando.value = false;
+  editing.value = false;
   emit('edited');
 }
 
-async function salvarTags(tags) {
+async function saveTags(tags) {
   const { data } = await api.put(`/patients/${props.patientId}`, { tags });
   paciente.value.tags = data.tags;
   emit('edited');
@@ -27,9 +27,9 @@ function addTag() {
   if (!t) return;
   const atual = paciente.value.tags || [];
   if (atual.includes(t)) return;
-  salvarTags([...atual, t]);
+  saveTags([...atual, t]);
 }
-function removeTag(t) { salvarTags((paciente.value.tags || []).filter((x) => x !== t)); }
+function removeTag(t) { saveTags((paciente.value.tags || []).filter((x) => x !== t)); }
 
 const TABS = [
   { slug: 'identificacao', icon: '📇', label: 'Identificação' },
@@ -50,7 +50,7 @@ const TIPO_NOTA = { anamnese: '📝 Anamnese', evolucao: '🩺 Evolução', ates
 const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 const paciente = ref(null);
-const abaAtiva = ref('identificacao');
+const activeTab = ref('identificacao');
 const consultas = ref(null);
 const exames = ref(null);
 const tratamentos = ref(null);
@@ -69,14 +69,14 @@ const ehVip = computed(() => (paciente.value?.tags || []).includes('VIP'));
 function fmtDia(iso) { return iso ? new Date(iso).toLocaleDateString('pt-BR') : '—'; }
 function fmtDataHora(iso) { return iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'; }
 
-async function carregarPaciente() {
+async function loadPatient() {
   consultas.value = exames.value = tratamentos.value = documentos.value = notas.value = timeline.value = null;
   paciente.value = (await api.get(`/patients/${props.patientId}`)).data;
-  abaAtiva.value = 'identificacao';
+  activeTab.value = 'identificacao';
 }
 
-async function abrirAba(slug) {
-  abaAtiva.value = slug;
+async function openTab(slug) {
+  activeTab.value = slug;
   const pid = props.patientId;
   const params = { patientId: pid };
   if (slug === 'consultas' && !consultas.value) consultas.value = (await api.get('/appointments', { params })).data;
@@ -87,8 +87,8 @@ async function abrirAba(slug) {
   if (slug === 'timeline' && !timeline.value) timeline.value = (await api.get(`/patients/${pid}/timeline`)).data;
 }
 
-onMounted(carregarPaciente);
-watch(() => props.patientId, carregarPaciente);
+onMounted(loadPatient);
+watch(() => props.patientId, loadPatient);
 </script>
 
 <template>
@@ -96,7 +96,7 @@ watch(() => props.patientId, carregarPaciente);
     <div class="cv-panel" v-if="paciente">
       <!-- Header -->
       <div class="cv-header">
-        <div class="cv-avatar" :style="{ background: corDe(paciente.nome) }">{{ iniciais(paciente.nome) }}</div>
+        <div class="cv-avatar" :style="{ background: colorFor(paciente.nome) }">{{ initials(paciente.nome) }}</div>
         <div class="cv-header-info">
           <div class="cv-nome">{{ paciente.nome }}</div>
           <div class="cv-meta">
@@ -107,13 +107,13 @@ watch(() => props.patientId, carregarPaciente);
             <span v-if="paciente.consentimento_lgpd" class="cv-badge">🔒 LGPD ✓</span>
           </div>
         </div>
-        <button class="cv-edit" @click="editando = true">✏️ Editar</button>
+        <button class="cv-edit" @click="editing = true">✏️ Editar</button>
         <button class="cv-close" @click="emit('close')">×</button>
       </div>
 
       <!-- Tabs -->
       <div class="cv-tabs">
-        <button v-for="t in TABS" :key="t.slug" class="cv-tab" :class="{ active: abaAtiva === t.slug }" @click="abrirAba(t.slug)">
+        <button v-for="t in TABS" :key="t.slug" class="cv-tab" :class="{ active: activeTab === t.slug }" @click="openTab(t.slug)">
           {{ t.icon }} {{ t.label }}
         </button>
       </div>
@@ -121,7 +121,7 @@ watch(() => props.patientId, carregarPaciente);
       <!-- Body -->
       <div class="cv-body">
         <!-- Identificação -->
-        <div v-if="abaAtiva === 'identificacao'" class="cv-tab-content">
+        <div v-if="activeTab === 'identificacao'" class="cv-tab-content">
           <div class="cv-grid-3">
             <div class="cv-field"><div class="cv-field-label">Nome</div><div class="cv-field-val">{{ paciente.nome }}</div></div>
             <div class="cv-field"><div class="cv-field-label">Nome social</div><div class="cv-field-val">{{ paciente.nome_social || '—' }}</div></div>
@@ -134,7 +134,7 @@ watch(() => props.patientId, carregarPaciente);
         </div>
 
         <!-- Contato -->
-        <div v-else-if="abaAtiva === 'contato'" class="cv-tab-content">
+        <div v-else-if="activeTab === 'contato'" class="cv-tab-content">
           <div class="cv-section">
             <div class="cv-section-title">📞 Contato</div>
             <div class="cv-grid-2">
@@ -160,7 +160,7 @@ watch(() => props.patientId, carregarPaciente);
         </div>
 
         <!-- Convênio -->
-        <div v-else-if="abaAtiva === 'convenio'" class="cv-tab-content">
+        <div v-else-if="activeTab === 'convenio'" class="cv-tab-content">
           <div class="cv-grid-2">
             <div class="cv-field"><div class="cv-field-label">Operadora</div><div class="cv-field-val">{{ paciente.convenio_detalhe?.operadora || paciente.convenio || 'Particular' }}</div></div>
             <div class="cv-field"><div class="cv-field-label">Plano</div><div class="cv-field-val">{{ paciente.convenio_detalhe?.plano || '—' }}</div></div>
@@ -170,7 +170,7 @@ watch(() => props.patientId, carregarPaciente);
         </div>
 
         <!-- Etiquetas -->
-        <div v-else-if="abaAtiva === 'etiquetas'" class="cv-tab-content">
+        <div v-else-if="activeTab === 'etiquetas'" class="cv-tab-content">
           <div v-if="(paciente.tags || []).length" style="margin-bottom:14px;">
             <span v-for="t in paciente.tags" :key="t" class="cv-tag cv-tag-edit">
               {{ t }}<button class="cv-tag-x" @click="removeTag(t)">×</button>
@@ -184,7 +184,7 @@ watch(() => props.patientId, carregarPaciente);
         </div>
 
         <!-- Consultas -->
-        <div v-else-if="abaAtiva === 'consultas'" class="cv-tab-content">
+        <div v-else-if="activeTab === 'consultas'" class="cv-tab-content">
           <table v-if="consultas && consultas.length" class="cv-table">
             <thead><tr><th>Data</th><th>Profissional</th><th>Tipo</th><th>Status</th></tr></thead>
             <tbody>
@@ -201,7 +201,7 @@ watch(() => props.patientId, carregarPaciente);
         </div>
 
         <!-- Exames -->
-        <div v-else-if="abaAtiva === 'exames'" class="cv-tab-content">
+        <div v-else-if="activeTab === 'exames'" class="cv-tab-content">
           <table v-if="exames && exames.length" class="cv-table">
             <thead><tr><th>Exame</th><th>Solicitante</th><th>Solicitado</th><th>Resultado</th><th>Status</th><th></th></tr></thead>
             <tbody>
@@ -220,7 +220,7 @@ watch(() => props.patientId, carregarPaciente);
         </div>
 
         <!-- Tratamentos -->
-        <div v-else-if="abaAtiva === 'tratamentos'" class="cv-tab-content">
+        <div v-else-if="activeTab === 'tratamentos'" class="cv-tab-content">
           <template v-if="tratamentos && tratamentos.length">
             <div v-for="t in tratamentos" :key="t.id" class="cv-list-item" style="border-left-color:var(--purple);">
               <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -240,7 +240,7 @@ watch(() => props.patientId, carregarPaciente);
         </div>
 
         <!-- Documentos -->
-        <div v-else-if="abaAtiva === 'documentos'" class="cv-tab-content">
+        <div v-else-if="activeTab === 'documentos'" class="cv-tab-content">
           <template v-if="documentos && documentos.length">
             <div v-for="d in documentos" :key="d.id" class="cv-list-item">
               <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -255,7 +255,7 @@ watch(() => props.patientId, carregarPaciente);
         </div>
 
         <!-- Prontuário -->
-        <div v-else-if="abaAtiva === 'prontuario'" class="cv-tab-content">
+        <div v-else-if="activeTab === 'prontuario'" class="cv-tab-content">
           <div class="cv-section">
             <div class="cv-section-title">⚠️ Alergias</div>
             <div v-if="(paciente.alergias || []).length"><span v-for="a in paciente.alergias" :key="a" class="cv-tag danger">{{ a }}</span></div>
@@ -288,7 +288,7 @@ watch(() => props.patientId, carregarPaciente);
         </div>
 
         <!-- Timeline -->
-        <div v-else-if="abaAtiva === 'timeline'" class="cv-tab-content">
+        <div v-else-if="activeTab === 'timeline'" class="cv-tab-content">
           <template v-if="timeline && timeline.length">
             <div v-for="(ev, i) in timeline" :key="i" class="cv-timeline-item">
               <div>
@@ -303,7 +303,7 @@ watch(() => props.patientId, carregarPaciente);
         </div>
 
         <!-- LGPD -->
-        <div v-else-if="abaAtiva === 'lgpd'" class="cv-tab-content">
+        <div v-else-if="activeTab === 'lgpd'" class="cv-tab-content">
           <div class="cv-grid-2">
             <div class="cv-field"><div class="cv-field-label">Consentimento LGPD</div><div class="cv-field-val">{{ paciente.consentimento_lgpd ? '✅ Consentido' : '⚠️ Pendente' }}</div></div>
             <div class="cv-field"><div class="cv-field-label">Data do consentimento</div><div class="cv-field-val">{{ fmtDataHora(paciente.consentimento_em) }}</div></div>
@@ -312,6 +312,6 @@ watch(() => props.patientId, carregarPaciente);
       </div>
     </div>
 
-    <PatientForm v-if="editando && paciente" :patient="paciente" @close="editando = false" @saved="onEditado" />
+    <PatientForm v-if="editing && paciente" :patient="paciente" @close="editing = false" @saved="onEditado" />
   </div>
 </template>

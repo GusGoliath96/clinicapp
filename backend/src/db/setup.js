@@ -5,11 +5,11 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import crypto from 'node:crypto';
 import { pool } from '../config/db.js';
-import { hashSenha } from '../config/senha.js';
+import { hashPassword } from '../config/password.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const TENANT_ID = '00000000-0000-0000-0000-000000000001';
-const PROFISSIONAL_DEMO = '00000000-0000-0000-0000-0000000000a1';
+const DEMO_PROFESSIONAL = '00000000-0000-0000-0000-0000000000a1';
 
 async function run() {
   const schema = readFileSync(join(here, 'schema.sql'), 'utf8');
@@ -31,32 +31,32 @@ async function run() {
     console.log('[db:setup] abra o primeiro acesso com: npm run auth:admin -- <seu-email>');
   } else {
     // Senha do .env se houver; senão uma aleatória, mostrada só agora.
-    const senha = process.env.SEED_ADMIN_SENHA || crypto.randomBytes(12).toString('base64url');
-    const senhaHash = await hashSenha(senha);
+    const password = process.env.SEED_ADMIN_SENHA || crypto.randomBytes(12).toString('base64url');
+    const passwordHash = await hashPassword(password);
 
     // O alias "+" do Gmail entrega na mesma caixa, então dá para exercitar o 2FA com dois
     // usuários distintos sem precisar de uma segunda conta de e-mail.
-    const [local, dominio] = adminEmail.split('@');
-    const medicoEmail = `${local}+medico@${dominio}`;
+    const [localPart, domain] = adminEmail.split('@');
+    const doctorEmail = `${localPart}+medico@${domain}`;
 
     await pool.query(
-      `INSERT INTO users (tenant_id, nome, email, senha_hash, papel)
+      `INSERT INTO users (tenant_id, name, email, password_hash, role)
        VALUES ($1, 'Administrador', $2, $3, 'admin')
-       ON CONFLICT (tenant_id, email) DO UPDATE SET senha_hash = EXCLUDED.senha_hash`,
-      [TENANT_ID, adminEmail, senhaHash],
+       ON CONFLICT (tenant_id, email) DO UPDATE SET password_hash = EXCLUDED.password_hash`,
+      [TENANT_ID, adminEmail, passwordHash],
     );
 
     // Vinculado ao Dr. Marco Aurélio, para cair direto na agenda dele.
     await pool.query(
-      `INSERT INTO users (tenant_id, nome, email, senha_hash, papel, professional_id)
+      `INSERT INTO users (tenant_id, name, email, password_hash, role, professional_id)
        VALUES ($1, 'Dr. Marco Aurélio Silva', $2, $3, 'medico', $4)
        ON CONFLICT (tenant_id, email) DO UPDATE
-         SET senha_hash = EXCLUDED.senha_hash, professional_id = EXCLUDED.professional_id`,
-      [TENANT_ID, medicoEmail, senhaHash, PROFISSIONAL_DEMO],
+         SET password_hash = EXCLUDED.password_hash, professional_id = EXCLUDED.professional_id`,
+      [TENANT_ID, doctorEmail, passwordHash, DEMO_PROFESSIONAL],
     );
 
-    console.log(`[db:setup] usuários: ${adminEmail} (admin) · ${medicoEmail} (medico)`);
-    if (!process.env.SEED_ADMIN_SENHA) console.log(`[db:setup] senha gerada: ${senha}`);
+    console.log(`[db:setup] usuários: ${adminEmail} (admin) · ${doctorEmail} (medico)`);
+    if (!process.env.SEED_ADMIN_SENHA) console.log(`[db:setup] senha gerada: ${password}`);
   }
 
   console.log('[db:setup] concluído.');

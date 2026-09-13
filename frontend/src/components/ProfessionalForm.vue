@@ -8,9 +8,9 @@ const emit = defineEmits(['close', 'saved']);
 const DIAS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
 const CORES = ['#2563eb', '#16a34a', '#ea580c', '#7c3aed', '#db2777', '#0891b2', '#dc2626', '#f59e0b'];
 
-const editando = computed(() => Boolean(props.professional?.id));
-const erro = ref('');
-const salvando = ref(false);
+const editing = computed(() => Boolean(props.professional?.id));
+const error = ref('');
+const saving = ref(false);
 
 function initHorarios(agenda) {
   const h = {};
@@ -46,10 +46,10 @@ function copiarParaUteis() {
   }
 }
 
-async function salvar() {
-  if (!f.nome.trim()) { erro.value = 'O nome é obrigatório.'; return; }
-  salvando.value = true;
-  erro.value = '';
+async function save() {
+  if (!f.nome.trim()) { error.value = 'O nome é obrigatório.'; return; }
+  saving.value = true;
+  error.value = '';
   const horarios = {};
   for (const d of DIAS) {
     const x = f.horarios[d];
@@ -62,14 +62,14 @@ async function salvar() {
     agenda: { duracaoConsulta: Number(f.duracaoConsulta) || 30, duracaoRetorno: Number(f.duracaoRetorno) || 20, horarios },
   };
   try {
-    const { data } = editando.value
+    const { data } = editing.value
       ? await api.put(`/professionals/${props.professional.id}`, payload)
       : await api.post('/professionals', payload);
     emit('saved', data);
   } catch (e) {
-    erro.value = e.response?.data?.error || 'Não foi possível salvar.';
+    error.value = e.response?.data?.error || 'Não foi possível save.';
   } finally {
-    salvando.value = false;
+    saving.value = false;
   }
 }
 </script>
@@ -78,11 +78,11 @@ async function salvar() {
   <div class="modal-backdrop active" @click.self="emit('close')">
     <div class="modal lg">
       <div class="modal-header">
-        <div class="modal-title">{{ editando ? '✏️ Editar profissional' : '＋ Novo profissional' }}</div>
+        <div class="modal-title">{{ editing ? '✏️ Editar profissional' : '＋ Novo profissional' }}</div>
         <button class="modal-close" @click="emit('close')">×</button>
       </div>
       <div class="modal-body">
-        <div v-if="erro" class="form-erro">{{ erro }}</div>
+        <div v-if="error" class="form-erro">{{ error }}</div>
 
         <div class="row-2">
           <div class="form-row"><label class="form-label">Nome <span class="required">*</span></label><input class="form-input" v-model="f.nome" /></div>
@@ -130,7 +130,7 @@ async function salvar() {
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" @click="emit('close')">Cancelar</button>
-        <button class="btn btn-primary" :disabled="salvando" @click="salvar">{{ salvando ? 'Salvando…' : (editando ? 'Salvar' : 'Cadastrar') }}</button>
+        <button class="btn btn-primary" :disabled="saving" @click="save">{{ saving ? 'Salvando…' : (editing ? 'Salvar' : 'Cadastrar') }}</button>
       </div>
     </div>
   </div>

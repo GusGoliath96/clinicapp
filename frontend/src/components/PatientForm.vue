@@ -5,9 +5,9 @@ import { api } from '../api/client.js';
 const props = defineProps({ patient: { type: Object, default: null } });
 const emit = defineEmits(['close', 'saved']);
 
-const editando = computed(() => Boolean(props.patient?.id));
-const erro = ref('');
-const salvando = ref(false);
+const editing = computed(() => Boolean(props.patient?.id));
+const error = ref('');
+const saving = ref(false);
 
 function toDateInput(iso) {
   if (!iso) return '';
@@ -31,10 +31,10 @@ const f = reactive({
   consentimento_lgpd: Boolean(p.consentimento_lgpd),
 });
 
-async function salvar() {
-  if (!f.nome.trim()) { erro.value = 'O nome é obrigatório.'; return; }
-  salvando.value = true;
-  erro.value = '';
+async function save() {
+  if (!f.nome.trim()) { error.value = 'O nome é obrigatório.'; return; }
+  saving.value = true;
+  error.value = '';
   const payload = {
     nome: f.nome.trim(), nome_social: f.nome_social || null, cpf: f.cpf || null, rg: f.rg || null,
     nascimento: f.nascimento || null, sexo: f.sexo || null, origem: f.origem || null,
@@ -46,14 +46,14 @@ async function salvar() {
     consentimento_lgpd: f.consentimento_lgpd,
   };
   try {
-    const { data } = editando.value
+    const { data } = editing.value
       ? await api.put(`/patients/${props.patient.id}`, payload)
       : await api.post('/patients', payload);
     emit('saved', data);
   } catch (e) {
-    erro.value = e.response?.data?.error || 'Não foi possível salvar.';
+    error.value = e.response?.data?.error || 'Não foi possível save.';
   } finally {
-    salvando.value = false;
+    saving.value = false;
   }
 }
 </script>
@@ -62,11 +62,11 @@ async function salvar() {
   <div class="modal-backdrop active" @click.self="emit('close')">
     <div class="modal lg">
       <div class="modal-header">
-        <div class="modal-title">{{ editando ? '✏️ Editar paciente' : '＋ Cadastrar paciente' }}</div>
+        <div class="modal-title">{{ editing ? '✏️ Editar paciente' : '＋ Cadastrar paciente' }}</div>
         <button class="modal-close" @click="emit('close')">×</button>
       </div>
       <div class="modal-body">
-        <div v-if="erro" class="form-erro">{{ erro }}</div>
+        <div v-if="error" class="form-erro">{{ error }}</div>
 
         <div class="cv-section-title">📇 Identificação</div>
         <div class="form-row">
@@ -141,7 +141,7 @@ async function salvar() {
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" @click="emit('close')">Cancelar</button>
-        <button class="btn btn-primary" :disabled="salvando" @click="salvar">{{ salvando ? 'Salvando…' : (editando ? 'Salvar alterações' : 'Cadastrar') }}</button>
+        <button class="btn btn-primary" :disabled="saving" @click="save">{{ saving ? 'Salvando…' : (editing ? 'Salvar alterações' : 'Cadastrar') }}</button>
       </div>
     </div>
   </div>

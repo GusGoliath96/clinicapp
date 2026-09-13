@@ -1,18 +1,18 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-const producao = process.env.NODE_ENV === 'production';
+const production = process.env.NODE_ENV === 'production';
 
 // Fail-closed: sem JWT_SECRET em produção todos os tokens seriam assinados com uma string
 // pública deste repositório, e qualquer um poderia forjar um login de admin. Recusar a
 // subir é melhor do que subir inseguro sem avisar.
-const jwtSecret = process.env.JWT_SECRET || (producao ? null : 'dev-secret');
+const jwtSecret = process.env.JWT_SECRET || (production ? null : 'dev-secret');
 if (!jwtSecret) {
   throw new Error('JWT_SECRET é obrigatório em produção. Gere com: openssl rand -base64 48');
 }
 
 export const env = {
-  producao,
+  production,
   port: Number(process.env.PORT || 3000),
   // Aceita lista separada por vírgula: em produção o SPA vem de um domínio (app.<dominio>)
   // e a API de outro (api.<dominio>), mas o dev continua em localhost:5173. Passar as duas

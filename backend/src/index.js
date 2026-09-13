@@ -12,9 +12,9 @@ import cookieParser from 'cookie-parser';
 import { env } from './config/env.js';
 import { uploadsDir } from './config/paths.js';
 import { requireAuth } from './middleware/auth.js';
-import { requirePapel } from './middleware/requirePapel.js';
+import { requireRole } from './middleware/requireRole.js';
 import { authOrService } from './middleware/serviceAuth.js';
-import { limiteAuth, limparAntigos } from './middleware/rateLimit.js';
+import { authLimiter, purgeExpired } from './middleware/rateLimit.js';
 import { initSocket } from './realtime/socket.js';
 
 import authRoutes from './routes/auth.js';
@@ -22,7 +22,7 @@ import professionalsRoutes from './routes/professionals.js';
 import patientsRoutes from './routes/patients.js';
 import tenantRoutes from './routes/tenant.js';
 import usersRoutes from './routes/users.js';
-import conveniosRoutes from './routes/convenios.js';
+import insurancePlansRoutes from './routes/insurance-plans.js';
 import appointmentsRoutes from './routes/appointments.js';
 import blocksRoutes from './routes/blocks.js';
 import documentsRoutes from './routes/documents.js';
@@ -44,7 +44,7 @@ app.set('trust proxy', 1);
 app.use(helmet({
   // A API não serve HTML; o CSP padrão do helmet só atrapalharia os PDFs de /uploads.
   contentSecurityPolicy: false,
-  hsts: env.producao ? { maxAge: 15_552_000, includeSubDomains: true } : false,
+  hsts: env.production ? { maxAge: 15_552_000, includeSubDomains: true } : false,
 }));
 
 // credentials: o cookie de dispositivo confiável do 2FA só é enviado numa requisição
@@ -66,7 +66,7 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 
 // Auth (login público; /me protegido internamente).
 // cookie-parser só aqui: o cookie de dispositivo tem Path=/auth e não existe no resto da API.
-app.use('/auth', limiteAuth, cookieParser(), authRoutes);
+app.use('/auth', authLimiter, cookieParser(), authRoutes);
 
 // Rotas protegidas por JWT + escopo de tenant.
 // /professionals, /patients e /appointments aceitam o token de serviço do motor
@@ -75,8 +75,8 @@ app.use('/professionals', authOrService, professionalsRoutes);
 app.use('/patients', authOrService, patientsRoutes);
 app.use('/tenant', requireAuth, tenantRoutes);
 // Só admin: estas rotas criam usuários, trocam senhas e atribuem papéis.
-app.use('/users', requireAuth, requirePapel('admin'), usersRoutes);
-app.use('/convenios', requireAuth, conveniosRoutes);
+app.use('/users', requireAuth, requireRole('admin'), usersRoutes);
+app.use('/convenios', requireAuth, insurancePlansRoutes);
 app.use('/appointments', authOrService, appointmentsRoutes);
 app.use('/blocks', requireAuth, blocksRoutes);
 app.use('/documents', requireAuth, documentsRoutes);
@@ -97,8 +97,8 @@ app.use((err, _req, res, _next) => {
 });
 
 // login_attempts cresce a cada tentativa e os desafios de 2FA/reset viram lixo ao expirar.
-limparAntigos();
-setInterval(limparAntigos, 6 * 60 * 60 * 1000).unref();
+purgeExpired();
+setInterval(purgeExpired, 6 * 60 * 60 * 1000).unref();
 
 const server = http.createServer(app);
 initSocket(server);

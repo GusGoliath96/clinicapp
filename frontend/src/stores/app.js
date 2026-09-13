@@ -4,7 +4,7 @@ import { defineStore } from 'pinia';
 export const useApp = defineStore('app', {
   state: () => ({
     pendentesRecepcao: 0,
-    abrirNovoAgendamento: false, // sinal do botão "+ Agendamento" da topbar
-    abrirNovoPaciente: false,    // sinal do botão "+ Paciente" da topbar
+    openNewAppointment: false, // sinal do botão "+ Agendamento" da topbar
+    openNewPatient: false,    // sinal do botão "+ Paciente" da topbar
   }),
 });

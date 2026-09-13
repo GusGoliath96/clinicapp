@@ -4,16 +4,16 @@ import { useRouter } from 'vue-router';
 import { api } from '../api/client.js';
 import { getSocket } from '../realtime/socket.js';
 import { useApp } from '../stores/app.js';
-import { iniciais, corDe, hora, statusTag, rotuloConversa } from '../utils/ui.js';
-import CardVida from '../components/CardVida.vue';
+import { initials, colorFor, time, statusTag, conversationLabel } from '../utils/ui.js';
+import LifeCard from '../components/LifeCard.vue';
 
 const router = useRouter();
 const app = useApp();
 const cardId = ref(null);
 
 const conversas = ref([]);
-const busca = ref('');
-const filtro = ref('todas');
+const search = ref('');
+const filter = ref('todas');
 const ativaId = ref(null);
 const mensagens = ref([]);
 const paciente = ref(null);
@@ -42,11 +42,11 @@ const counts = computed(() => {
 });
 
 const lista = computed(() => {
-  const s = busca.value.toLowerCase();
+  const s = search.value.toLowerCase();
   return conversas.value
-    .filter((c) => filtro.value === 'todas' || c.status === filtro.value)
+    .filter((c) => filter.value === 'todas' || c.status === filter.value)
     .filter((c) => !s
-      || rotuloConversa(c).toLowerCase().includes(s)
+      || conversationLabel(c).toLowerCase().includes(s)
       || (c.nome_exibicao || '').toLowerCase().includes(s)
       || (c.telefone || '').includes(s)
       || (c.last_message_preview || '').toLowerCase().includes(s))
@@ -59,13 +59,13 @@ const chStatus = computed(() => ({
   pendente: '⏳ Aguardando você assumir', humano: '● Atendendo', resolvida: '✅ Encerrada',
 }[ativa.value?.status] || ''));
 
-async function carregar() {
+async function load() {
   const { data } = await api.get('/conversations');
   conversas.value = data;
   app.pendentesRecepcao = data.filter((c) => c.status === 'pendente').length;
 }
 
-async function abrir(c) {
+async function open(c) {
   ativaId.value = c.id;
   banner.value = '';
   c.unread = 0;
@@ -107,7 +107,7 @@ async function resolver() {
 function agendar() { router.push('/agenda'); }
 function useQuick(t) { rascunho.value = t; }
 
-async function recarregarPaciente() {
+async function reloadPatient() {
   if (ativa.value?.patient_id) {
     try { paciente.value = (await api.get(`/patients/${ativa.value.patient_id}`)).data; } catch {}
   }
@@ -125,11 +125,11 @@ function scrollFim() {
 }
 
 onMounted(async () => {
-  await carregar();
+  await load();
   socket = getSocket();
   socket.on('message:new', (msg) => {
     if (ativa.value && msg.conversation_id === ativa.value.id) { mensagens.value.push(msg); scrollFim(); }
-    carregar();
+    load();
   });
   socket.on('conversation:update', upsert);
   socket.on('message:status', (msg) => {
@@ -141,7 +141,7 @@ onUnmounted(() => {
   socket?.off('message:new'); socket?.off('conversation:update'); socket?.off('message:status');
 });
 
-watch(filtro, () => {});
+watch(filter, () => {});
 </script>
 
 <template>
@@ -159,30 +159,30 @@ watch(filtro, () => {});
         <strong style="flex:1;font-size:12px;">Conversas</strong>
       </div>
       <div class="wa-search">
-        <input v-model="busca" type="text" placeholder="Pesquisar..." />
+        <input v-model="search" type="text" placeholder="Pesquisar..." />
       </div>
       <div class="wa-filters">
         <button
           v-for="f in FILTROS" :key="f.id"
-          class="wa-filter" :class="{ active: filtro === f.id }"
-          @click="filtro = f.id"
+          class="wa-filter" :class="{ active: filter === f.id }"
+          @click="filter = f.id"
         >{{ f.label }} <span class="ct">{{ counts[f.id] || 0 }}</span></button>
       </div>
       <div class="wa-conv-list">
         <div
           v-for="c in lista" :key="c.id"
           class="wa-conv" :class="{ active: c.id === ativaId }"
-          @click="abrir(c)"
+          @click="open(c)"
         >
-          <div class="wa-conv-avatar" :style="{ background: corDe(rotuloConversa(c)) }">
-            {{ iniciais(rotuloConversa(c)) }}
+          <div class="wa-conv-avatar" :style="{ background: colorFor(conversationLabel(c)) }">
+            {{ initials(conversationLabel(c)) }}
             <div v-if="c.status === 'pendente'" class="wa-status-icon pulse" style="background:#f59e0b;">!</div>
             <div v-else-if="c.status === 'humano'" class="wa-status-icon" style="background:#16a34a;">●</div>
           </div>
           <div class="wa-conv-info">
             <div class="wa-conv-line1">
-              <span class="wa-conv-name">{{ rotuloConversa(c) }}</span>
-              <span class="wa-conv-time" :class="{ unread: c.unread }">{{ hora(c.updated_at) }}</span>
+              <span class="wa-conv-name">{{ conversationLabel(c) }}</span>
+              <span class="wa-conv-time" :class="{ unread: c.unread }">{{ time(c.updated_at) }}</span>
             </div>
             <div class="wa-conv-line2">
               <span class="wa-conv-preview">{{ c.last_message_preview }}</span>
@@ -203,11 +203,11 @@ watch(filtro, () => {});
       </div>
       <template v-else>
         <div class="wa-chat-header">
-          <div class="ch-avatar" :style="{ background: corDe(rotuloConversa(ativa)) }">
-            {{ iniciais(rotuloConversa(ativa)) }}
+          <div class="ch-avatar" :style="{ background: colorFor(conversationLabel(ativa)) }">
+            {{ initials(conversationLabel(ativa)) }}
           </div>
           <div class="ch-info">
-            <div class="ch-name">{{ rotuloConversa(ativa) }}</div>
+            <div class="ch-name">{{ conversationLabel(ativa) }}</div>
             <div class="ch-status">{{ chStatus }}</div>
           </div>
           <div class="ch-actions">
@@ -221,11 +221,11 @@ watch(filtro, () => {});
         <div ref="msgsEl" class="messages">
           <template v-for="m in mensagens" :key="m.id">
             <div v-if="m.direction === 'in'" class="bubble in">
-              {{ m.texto }}<div class="meta">{{ hora(m.created_at) }}</div>
+              {{ m.texto }}<div class="meta">{{ time(m.created_at) }}</div>
             </div>
             <div v-else class="bubble out">
               {{ m.texto }}
-              <div class="meta">{{ hora(m.created_at) }} <span class="check">{{ m.status === 'lido' ? '✓✓' : m.status === 'falhou' ? '✗' : '✓✓' }}</span></div>
+              <div class="meta">{{ time(m.created_at) }} <span class="check">{{ m.status === 'lido' ? '✓✓' : m.status === 'falhou' ? '✗' : '✓✓' }}</span></div>
             </div>
           </template>
         </div>
@@ -253,7 +253,7 @@ watch(filtro, () => {});
     <aside class="patient-panel">
       <template v-if="paciente">
         <div class="pp-header">
-          <div class="pp-avatar" :style="{ background: corDe(paciente.nome) }">{{ iniciais(paciente.nome) }}</div>
+          <div class="pp-avatar" :style="{ background: colorFor(paciente.nome) }">{{ initials(paciente.nome) }}</div>
           <div class="pp-name">{{ paciente.nome }}</div>
           <div class="pp-meta">{{ paciente.convenio || 'Sem convênio' }}</div>
           <div class="pp-tags">
@@ -282,5 +282,5 @@ watch(filtro, () => {});
     </aside>
   </div>
 
-  <CardVida v-if="cardId" :patient-id="cardId" @close="cardId = null" @edited="recarregarPaciente" />
+  <LifeCard v-if="cardId" :patient-id="cardId" @close="cardId = null" @edited="reloadPatient" />
 </template>

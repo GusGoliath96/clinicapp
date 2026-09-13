@@ -5,7 +5,7 @@
 // Sem RESEND_API_KEY o mailer só imprime no console, e o teste "passa" sem entregar nada —
 // por isso a saída avisa qual dos dois modos rodou.
 import { env } from '../config/env.js';
-import { enviarCodigo2fa } from '../integrations/mailer.js';
+import { sendTwoFactorCode } from '../integrations/mailer.js';
 
 const email = String(process.argv[2] || '').trim();
 if (!email) {
@@ -19,11 +19,11 @@ if (!env.mail.apiKey) {
 }
 
 try {
-  const r = await enviarCodigo2fa(email, '123456');
-  if (r.simulated) {
+  const result = await sendTwoFactorCode(email, '123456');
+  if (result.simulated) {
     console.log('\n  Modo simulado — nada foi entregue de verdade.\n');
   } else {
-    console.log(`\n  Enviado (id ${r.id}). Confira a caixa de ${email}, inclusive o spam.\n`);
+    console.log(`\n  Enviado (id ${result.id}). Confira a caixa de ${email}, inclusive o spam.\n`);
   }
 } catch (e) {
   console.error(`\n  Falhou: ${e.message}\n`);

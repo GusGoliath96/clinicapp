@@ -1,8 +1,8 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { api } from '../api/client.js';
-import { iniciais, corDe, hora } from '../utils/ui.js';
-import CardVida from '../components/CardVida.vue';
+import { initials, colorFor, time } from '../utils/ui.js';
+import LifeCard from '../components/LifeCard.vue';
 import AutoComplete from '../components/AutoComplete.vue';
 
 const TABS = [
@@ -35,80 +35,80 @@ const ATESTADO_TIPOS = [
 ];
 
 const meProfId = ref(null);
-const profissionais = ref([]);
+const professionals = ref([]);
 const profId = ref('');
 const fila = ref([]);
 const selApt = ref(null);
 const paciente = ref(null);
-const abaAtiva = ref('anamnese');
-const editor = ref({ notaId: null, conteudo: '', dados: null });
+const activeTab = ref('anamnese');
+const editor = ref({ noteId: null, conteudo: '', dados: null });
 const historico = ref([]);
 const exames = ref([]);
-const novoExame = ref({ nome: '', tipo: '', indicacao: '' });
-const salvandoNota = ref(false);
+const newExam = ref({ nome: '', tipo: '', indicacao: '' });
+const savingNote = ref(false);
 const salvoFlash = ref(false);
 const cardId = ref(null);
 const clinica = ref({ nome: 'Clínica', config: {} });
-const inicioAtend = ref(null);
+const careStart = ref(null);
 const agora = ref(Date.now());
 let timerInt;
 
-const profSel = computed(() => profissionais.value.find((p) => p.id === profId.value) || null);
-const filaOrdenada = computed(() => fila.value
+const profSel = computed(() => professionals.value.find((p) => p.id === profId.value) || null);
+const sortedQueue = computed(() => fila.value
   .filter((a) => STATUS_FILA.includes(a.status))
   .sort((a, b) => new Date(a.inicio) - new Date(b.inicio)));
-const abaAtual = computed(() => TABS.find((t) => t.id === abaAtiva.value));
+const currentTab = computed(() => TABS.find((t) => t.id === activeTab.value));
 const cronometro = computed(() => {
-  if (!inicioAtend.value) return '';
-  const s = Math.floor((agora.value - inicioAtend.value) / 1000);
+  if (!careStart.value) return '';
+  const s = Math.floor((agora.value - careStart.value) / 1000);
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 });
 
-function hojeRange() {
+function todayRange() {
   const d = new Date(); d.setHours(0, 0, 0, 0);
   const f = new Date(); f.setHours(23, 59, 59, 999);
   return { de: d.toISOString(), ate: f.toISOString() };
 }
 
-async function carregarFila() {
+async function loadQueue() {
   if (!profId.value) { fila.value = []; return; }
-  const { de, ate } = hojeRange();
+  const { de, ate } = todayRange();
   fila.value = (await api.get('/appointments', { params: { de, ate, professionalId: profId.value } })).data;
 }
 
 async function selecionar(apt) {
   selApt.value = apt;
-  abaAtiva.value = 'anamnese';
-  inicioAtend.value = apt.status === 'em_atendimento' ? Date.now() : null;
+  activeTab.value = 'anamnese';
+  careStart.value = apt.status === 'em_atendimento' ? Date.now() : null;
   paciente.value = null;
   if (apt.patient_id) {
     try { paciente.value = (await api.get(`/patients/${apt.patient_id}`)).data; } catch {}
   }
-  await carregarAba();
+  await loadTab();
 }
 
 async function iniciar() {
   const { data } = await api.put(`/appointments/${selApt.value.id}`, { status: 'em_atendimento' });
   selApt.value = { ...selApt.value, ...data };
-  inicioAtend.value = Date.now();
-  carregarFila();
+  careStart.value = Date.now();
+  loadQueue();
 }
 async function finalizar() {
   const { data } = await api.put(`/appointments/${selApt.value.id}`, { status: 'realizado' });
   selApt.value = { ...selApt.value, ...data };
-  inicioAtend.value = null;
-  carregarFila();
+  careStart.value = null;
+  loadQueue();
 }
 
-async function carregarAba() {
-  const t = abaAtual.value;
-  editor.value = { notaId: null, conteudo: '', dados: null };
+async function loadTab() {
+  const t = currentTab.value;
+  editor.value = { noteId: null, conteudo: '', dados: null };
   historico.value = [];
   exames.value = [];
   if (!selApt.value) return;
   if (t.tipo) {
     const daConsulta = (await api.get('/clinical-notes', { params: { appointmentId: selApt.value.id, tipo: t.tipo } })).data;
-    if (daConsulta[0]) editor.value = { notaId: daConsulta[0].id, conteudo: daConsulta[0].conteudo || '', dados: daConsulta[0].dados || null };
+    if (daConsulta[0]) editor.value = { noteId: daConsulta[0].id, conteudo: daConsulta[0].conteudo || '', dados: daConsulta[0].dados || null };
     if (t.id === 'receita' && (!editor.value.dados || !Array.isArray(editor.value.dados.itens))) {
       editor.value.dados = { itens: [], observacoes: '' };
     }
@@ -124,27 +124,27 @@ async function carregarAba() {
   }
 }
 
-async function salvarNota() {
+async function saveNote() {
   if (!selApt.value) return;
-  salvandoNota.value = true;
+  savingNote.value = true;
   try {
-    const t = abaAtual.value;
+    const t = currentTab.value;
     const payload = { conteudo: editor.value.conteudo };
-    if (t.id === 'receita') { payload.dados = editor.value.dados; payload.conteudo = receitaTexto(editor.value.dados); }
-    if (t.id === 'atestado') { payload.dados = editor.value.dados; payload.conteudo = atestadoTexto(editor.value.dados); }
-    if (editor.value.notaId) {
-      await api.put(`/clinical-notes/${editor.value.notaId}`, payload);
+    if (t.id === 'receita') { payload.dados = editor.value.dados; payload.conteudo = prescriptionText(editor.value.dados); }
+    if (t.id === 'atestado') { payload.dados = editor.value.dados; payload.conteudo = certificateText(editor.value.dados); }
+    if (editor.value.noteId) {
+      await api.put(`/clinical-notes/${editor.value.noteId}`, payload);
     } else {
       const { data } = await api.post('/clinical-notes', {
         patient_id: paciente.value?.id, professional_id: profId.value,
         appointment_id: selApt.value.id, tipo: t.tipo, ...payload,
       });
-      editor.value.notaId = data.id;
+      editor.value.noteId = data.id;
     }
     salvoFlash.value = true;
     setTimeout(() => { salvoFlash.value = false; }, 2000);
   } finally {
-    salvandoNota.value = false;
+    savingNote.value = false;
   }
 }
 
@@ -152,13 +152,13 @@ async function salvarNota() {
 function ensureDados() {
   if (!editor.value.dados || !Array.isArray(editor.value.dados.itens)) editor.value.dados = { itens: [], observacoes: '' };
 }
-function novoItem(medicamento = '') {
+function newItem(medicamento = '') {
   return { medicamento, via: 'Uso oral', dose: '', frequencia: '', duracao: '', quantidade: '', orientacao: '' };
 }
-function addMedItem(nome) { ensureDados(); editor.value.dados.itens.push(novoItem(nome)); }
-function addManualItem() { ensureDados(); editor.value.dados.itens.push(novoItem()); }
+function addMedItem(nome) { ensureDados(); editor.value.dados.itens.push(newItem(nome)); }
+function addManualItem() { ensureDados(); editor.value.dados.itens.push(newItem()); }
 function removeRxItem(i) { editor.value.dados.itens.splice(i, 1); }
-function receitaTexto(dados) {
+function prescriptionText(dados) {
   const linhas = (dados?.itens || []).map((it, i) => {
     const posol = [it.dose, it.frequencia, it.duracao].filter(Boolean).join(', ');
     let l = `${i + 1}) ${it.medicamento}`;
@@ -176,7 +176,7 @@ function receitaTexto(dados) {
 function defaultAtestado() {
   return { tipo: 'afastamento', dias: 1, inicio: new Date().toISOString().slice(0, 10), horaInicio: '', horaFim: '', incluirCid: false, cid: '', observacoes: '' };
 }
-function atestadoTexto(d) {
+function certificateText(d) {
   if (!d) return '';
   const nome = paciente.value?.nome || '[paciente]';
   const dataFmt = d.inicio ? new Date(d.inicio + 'T00:00:00').toLocaleDateString('pt-BR') : '';
@@ -193,7 +193,7 @@ function atestadoTexto(d) {
   } else {
     const dias = Number(d.dias) || 1;
     const alvo = d.tipo === 'repouso' ? 'repouso' : 'afastamento de suas atividades';
-    txt = `Atesto para os devidos fins que ${nome} esteve sob meus cuidados profissionais nesta data, necessitando de ${alvo} pelo período de ${dias} dia(s), a partir de ${dataFmt}${cid}.`;
+    txt = `Atesto para os devidos fins que ${nome} esteve sob meus cuidados professionals nesta data, necessitando de ${alvo} pelo período de ${dias} dia(s), a partir de ${dataFmt}${cid}.`;
   }
   if (d.observacoes) txt += `\n\n${d.observacoes}`;
   return txt;
@@ -202,7 +202,7 @@ function atestadoTexto(d) {
 const escHtml = (s) => String(s || '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
 // Abre a janela de impressão com cabeçalho da clínica, paciente, corpo e assinatura.
-function abrirImpressao(titulo, corpoHtml, extraTopo = '') {
+function openPrint(titulo, corpoHtml, extraTopo = '') {
   const p = paciente.value || {};
   const prof = profSel.value || {};
   const dataStr = new Date().toLocaleDateString('pt-BR');
@@ -239,8 +239,8 @@ function abrirImpressao(titulo, corpoHtml, extraTopo = '') {
   win.document.close(); win.focus(); win.print();
 }
 
-function imprimirDoc() {
-  const t = abaAtual.value;
+function printDoc() {
+  const t = currentTab.value;
   let corpo;
   if (t.id === 'receita') {
     const itens = editor.value.dados?.itens || [];
@@ -256,31 +256,31 @@ function imprimirDoc() {
     if (editor.value.dados?.observacoes) corpo += `<div class="rx-geral"><strong>Observações:</strong> ${escHtml(editor.value.dados.observacoes)}</div>`;
     if (!corpo) corpo = '<div style="color:#888;">Nenhum medicamento.</div>';
   } else if (t.id === 'atestado') {
-    corpo = `<div class="atest">${escHtml(atestadoTexto(editor.value.dados)).replace(/\n/g, '<br>') || '&nbsp;'}</div>`;
+    corpo = `<div class="atest">${escHtml(certificateText(editor.value.dados)).replace(/\n/g, '<br>') || '&nbsp;'}</div>`;
   } else {
     corpo = `<div style="white-space:pre-wrap;line-height:1.7;">${escHtml(editor.value.conteudo) || '&nbsp;'}</div>`;
   }
-  abrirImpressao(t.doc, corpo);
+  openPrint(t.doc, corpo);
 }
 
 // Imprime a solicitação de um exame individual (modelo para atendimento particular).
-function imprimirPedidoExame(e) {
+function printExamRequest(e) {
   const corpo = `<ol class="ex-list"><li>${escHtml(e.nome)}${e.tipo ? ` <span style="color:#666;font-size:12px;">(${escHtml(e.tipo)})</span>` : ''}</li></ol>`;
   const extra = e.indicacao ? `<div class="ind"><strong>Indicação clínica / hipótese diagnóstica:</strong> ${escHtml(e.indicacao)}</div>` : '';
-  abrirImpressao('Solicitação de Exame', corpo, extra);
+  openPrint('Solicitação de Exame', corpo, extra);
 }
 
 async function solicitarExame() {
-  const n = novoExame.value;
+  const n = newExam.value;
   if (!n.nome.trim() || !paciente.value) return;
-  const hojeISO = new Date().toISOString().slice(0, 10);
+  const todayISO = new Date().toISOString().slice(0, 10);
   await api.post('/exams', {
     patient_id: paciente.value.id, professional_id: profId.value, appointment_id: selApt.value.id,
-    nome: n.nome.trim(), tipo: n.tipo || null, status: 'solicitado', data_solicitacao: hojeISO,
+    nome: n.nome.trim(), tipo: n.tipo || null, status: 'solicitado', data_solicitacao: todayISO,
     indicacao: n.indicacao || null,
   });
-  novoExame.value = { nome: '', tipo: '', indicacao: '' };
-  carregarAba();
+  newExam.value = { nome: '', tipo: '', indicacao: '' };
+  loadTab();
 }
 
 async function atualizarExame(e, campos) {
@@ -328,15 +328,15 @@ onMounted(async () => {
     api.get('/auth/me'), api.get('/professionals'), api.get('/tenant').catch(() => ({ data: null })),
   ]);
   meProfId.value = me.data?.professional_id || null;
-  profissionais.value = profs.data;
+  professionals.value = profs.data;
   if (tenant.data) clinica.value = tenant.data;
   profId.value = meProfId.value || (profs.data[0]?.id || '');
-  await carregarFila();
+  await loadQueue();
   timerInt = setInterval(() => { agora.value = Date.now(); }, 1000);
 });
 onUnmounted(() => clearInterval(timerInt));
-watch(profId, () => { selApt.value = null; paciente.value = null; carregarFila(); });
-watch(abaAtiva, carregarAba);
+watch(profId, () => { selApt.value = null; paciente.value = null; loadQueue(); });
+watch(activeTab, loadTab);
 </script>
 
 <template>
@@ -345,7 +345,7 @@ watch(abaAtiva, carregarAba);
     <aside class="clin-fila">
       <div class="clin-fila-header">
         <strong style="font-size:13px;">Fila do dia</strong>
-        <span class="badge badge-blue" style="margin-left:auto;">{{ filaOrdenada.length }}</span>
+        <span class="badge badge-blue" style="margin-left:auto;">{{ sortedQueue.length }}</span>
       </div>
       <div style="padding:10px 12px;border-bottom:1px solid var(--gray-100);">
         <template v-if="meProfId">
@@ -359,9 +359,9 @@ watch(abaAtiva, carregarAba);
           </select>
         </template>
       </div>
-      <div v-if="!filaOrdenada.length" class="empty" style="padding:20px;font-size:12px;">Sem pacientes na fila hoje.</div>
-      <div v-for="a in filaOrdenada" :key="a.id" class="clin-fila-item" :class="{ active: selApt && a.id === selApt.id }" @click="selecionar(a)">
-        <div style="font-weight:600;font-size:12px;">{{ hora(a.inicio) }} · {{ (a.paciente_nome || 'Sem paciente') }}</div>
+      <div v-if="!sortedQueue.length" class="empty" style="padding:20px;font-size:12px;">Sem patients na fila hoje.</div>
+      <div v-for="a in sortedQueue" :key="a.id" class="clin-fila-item" :class="{ active: selApt && a.id === selApt.id }" @click="selecionar(a)">
+        <div style="font-weight:600;font-size:12px;">{{ time(a.inicio) }} · {{ (a.paciente_nome || 'Sem paciente') }}</div>
         <div style="font-size:11px;color:var(--gray-500);margin-top:2px;">{{ a.tipo || 'Consulta' }}</div>
         <span class="badge" :class="a.status === 'em_atendimento' ? 'badge-purple' : (a.status === 'confirmado' ? 'badge-blue' : 'badge-orange')" style="margin-top:4px;font-size:9px;">{{ STATUS_LABEL[a.status] }}</span>
       </div>
@@ -371,10 +371,10 @@ watch(abaAtiva, carregarAba);
     <main class="clin-prontuario">
       <template v-if="selApt">
         <div class="clin-pront-header">
-          <div class="ch-avatar" :style="{ background: corDe(selApt.paciente_nome || '?'), width: '46px', height: '46px', fontSize: '14px' }">{{ iniciais(selApt.paciente_nome || '?') }}</div>
+          <div class="ch-avatar" :style="{ background: colorFor(selApt.paciente_nome || '?'), width: '46px', height: '46px', fontSize: '14px' }">{{ initials(selApt.paciente_nome || '?') }}</div>
           <div class="pront-pac-info">
             <div class="pront-pac-name">{{ selApt.paciente_nome || 'Sem paciente' }}</div>
-            <div class="pront-pac-meta">{{ hora(selApt.inicio) }} · {{ selApt.tipo || 'Consulta' }}<span v-if="paciente?.nascimento"> · Nasc. {{ new Date(paciente.nascimento).toLocaleDateString('pt-BR') }}</span></div>
+            <div class="pront-pac-meta">{{ time(selApt.inicio) }} · {{ selApt.tipo || 'Consulta' }}<span v-if="paciente?.nascimento"> · Nasc. {{ new Date(paciente.nascimento).toLocaleDateString('pt-BR') }}</span></div>
           </div>
           <div v-if="selApt.status === 'em_atendimento' && cronometro" class="pront-timer">⏱ {{ cronometro }}</div>
           <div class="pront-actions">
@@ -385,22 +385,22 @@ watch(abaAtiva, carregarAba);
         </div>
 
         <div class="pront-tabs">
-          <button v-for="t in TABS" :key="t.id" class="pront-tab" :class="{ active: abaAtiva === t.id }" @click="abaAtiva = t.id">{{ t.icon }} {{ t.label }}</button>
+          <button v-for="t in TABS" :key="t.id" class="pront-tab" :class="{ active: activeTab === t.id }" @click="activeTab = t.id">{{ t.icon }} {{ t.label }}</button>
         </div>
 
         <div class="pront-content">
           <!-- Abas de nota -->
-          <template v-if="abaAtual.tipo">
+          <template v-if="currentTab.tipo">
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-              <strong>{{ abaAtual.label }}</strong>
+              <strong>{{ currentTab.label }}</strong>
               <span v-if="salvoFlash" style="color:var(--success);font-size:12px;font-weight:600;">✓ Salvo</span>
               <div style="margin-left:auto;display:flex;gap:6px;">
-                <button v-if="abaAtual.doc" class="btn btn-secondary btn-sm" @click="imprimirDoc">🖨 Imprimir</button>
-                <button class="btn btn-primary btn-sm" :disabled="salvandoNota" @click="salvarNota">{{ salvandoNota ? 'Salvando…' : 'Salvar' }}</button>
+                <button v-if="currentTab.doc" class="btn btn-secondary btn-sm" @click="printDoc">🖨 Imprimir</button>
+                <button class="btn btn-primary btn-sm" :disabled="savingNote" @click="saveNote">{{ savingNote ? 'Salvando…' : 'Salvar' }}</button>
               </div>
             </div>
             <!-- RECEITA estruturada (campos exigidos pela legislação) -->
-            <template v-if="abaAtiva === 'receita'">
+            <template v-if="activeTab === 'receita'">
               <div style="max-width:640px;margin-bottom:10px;">
                 <label class="form-label">💊 Buscar medicamento no catálogo</label>
                 <AutoComplete tipo="medicamentos" clear-on-select placeholder="Digite: amoxicilina, losartana, dipirona..." @select="(i) => addMedItem(i.value)" />
@@ -433,7 +433,7 @@ watch(abaAtiva, carregarAba);
             </template>
 
             <!-- ATESTADO estruturado -->
-            <template v-else-if="abaAtiva === 'atestado' && editor.dados">
+            <template v-else-if="activeTab === 'atestado' && editor.dados">
               <div class="row-2" style="max-width:640px;">
                 <div class="form-row">
                   <label class="form-label">Tipo de atestado</label>
@@ -474,13 +474,13 @@ watch(abaAtiva, carregarAba);
               </div>
               <div class="atest-preview" style="max-width:640px;">
                 <div class="atest-preview-lbl">Pré-visualização</div>
-                <div class="atest-preview-txt">{{ atestadoTexto(editor.dados) || '—' }}</div>
+                <div class="atest-preview-txt">{{ certificateText(editor.dados) || '—' }}</div>
               </div>
             </template>
 
             <!-- Demais notas: texto livre -->
             <template v-else>
-              <textarea v-model="editor.conteudo" class="pront-editor" :placeholder="'Digite ' + abaAtual.label.toLowerCase() + ' aqui...'"></textarea>
+              <textarea v-model="editor.conteudo" class="pront-editor" :placeholder="'Digite ' + currentTab.label.toLowerCase() + ' aqui...'"></textarea>
             </template>
 
             <div v-if="historico.length" style="margin-top:18px;">
@@ -496,12 +496,12 @@ watch(abaAtiva, carregarAba);
           <template v-else>
             <div class="cv-section-title">🔬 Solicitar exame</div>
             <div style="display:flex;gap:8px;max-width:660px;margin-bottom:6px;align-items:flex-start;flex-wrap:wrap;">
-              <AutoComplete v-model="novoExame.nome" tipo="exames" placeholder="Buscar exame: hemograma, RX, ultrassom..." style="flex:1;min-width:220px;" />
-              <input class="form-input" style="max-width:150px;" v-model="novoExame.tipo" placeholder="Tipo (opcional)" />
+              <AutoComplete v-model="newExam.nome" tipo="exames" placeholder="Buscar exame: hemograma, RX, ultrassom..." style="flex:1;min-width:220px;" />
+              <input class="form-input" style="max-width:150px;" v-model="newExam.tipo" placeholder="Tipo (opcional)" />
               <button class="btn btn-primary btn-sm" @click="solicitarExame">Solicitar</button>
             </div>
             <div style="max-width:660px;margin-bottom:18px;">
-              <AutoComplete v-model="novoExame.indicacao" tipo="cids" placeholder="Indicação clínica / CID (opcional) — ex.: lombalgia, I10..." />
+              <AutoComplete v-model="newExam.indicacao" tipo="cids" placeholder="Indicação clínica / CID (opcional) — ex.: lombalgia, I10..." />
             </div>
 
             <div class="cv-section-title">Exames do paciente</div>
@@ -527,7 +527,7 @@ watch(abaAtiva, carregarAba);
                   placeholder="hipótese diagnóstica / CID (sai no pedido impresso)" />
               </div>
               <div class="ex-actions">
-                <button class="btn btn-secondary btn-sm" @click="imprimirPedidoExame(e)">🖨 Imprimir pedido</button>
+                <button class="btn btn-secondary btn-sm" @click="printExamRequest(e)">🖨 Imprimir pedido</button>
                 <a v-if="e.arquivo_url" :href="apiBase + e.arquivo_url" target="_blank" class="btn btn-secondary btn-sm">📄 Ver resultado</a>
                 <label class="btn btn-secondary btn-sm" style="cursor:pointer;">
                   {{ e.arquivo_url ? '🔁 Trocar PDF' : '📎 Anexar resultado (PDF)' }}
@@ -565,5 +565,5 @@ watch(abaAtiva, carregarAba);
     </aside>
   </div>
 
-  <CardVida v-if="cardId" :patient-id="cardId" @close="cardId = null" />
+  <LifeCard v-if="cardId" :patient-id="cardId" @close="cardId = null" />
 </template>

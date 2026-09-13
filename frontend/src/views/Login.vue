@@ -4,33 +4,33 @@ import { useRouter } from 'vue-router';
 import { useAuth } from '../stores/auth.js';
 
 const email = ref('');
-const senha = ref('');
-const erro = ref('');
-const entrando = ref(false);
+const password = ref('');
+const error = ref('');
+const signingIn = ref(false);
 const auth = useAuth();
 const router = useRouter();
 
-async function entrar() {
-  erro.value = '';
-  entrando.value = true;
+async function signIn() {
+  error.value = '';
+  signingIn.value = true;
   try {
-    const resultado = await auth.login(email.value, senha.value);
-    router.push(resultado === '2fa' ? '/verificar-codigo' : '/recepcao');
+    const result = await auth.login(email.value, password.value);
+    router.push(result === '2fa' ? '/verificar-codigo' : '/recepcao');
   } catch (e) {
-    erro.value = e.response?.data?.error || 'Não foi possível entrar. Tente de novo.';
+    error.value = e.response?.data?.error || 'Não foi possível entrar. Tente de novo.';
   } finally {
-    entrando.value = false;
+    signingIn.value = false;
   }
 }
 </script>
 
 <template>
   <div class="auth-wrap">
-    <form class="auth-card" @submit.prevent="entrar">
+    <form class="auth-card" @submit.prevent="signIn">
       <h1 class="auth-logo">ClinicaApp</h1>
       <p class="auth-sub">Entre com seu e-mail e senha.</p>
 
-      <div v-if="erro" class="form-erro">{{ erro }}</div>
+      <div v-if="error" class="form-erro">{{ error }}</div>
 
       <div class="form-row">
         <label class="form-label" for="email">E-mail</label>
@@ -40,12 +40,12 @@ async function entrar() {
 
       <div class="form-row">
         <label class="form-label" for="senha">Senha</label>
-        <input id="senha" v-model="senha" class="form-input" type="password"
+        <input id="senha" v-model="password" class="form-input" type="password"
                autocomplete="current-password" required />
       </div>
 
-      <button class="btn btn-primary auth-btn" type="submit" :disabled="entrando">
-        {{ entrando ? 'Entrando…' : 'Entrar' }}
+      <button class="btn btn-primary auth-btn" type="submit" :disabled="signingIn">
+        {{ signingIn ? 'Entrando…' : 'Entrar' }}
       </button>
 
       <p class="auth-rodape">

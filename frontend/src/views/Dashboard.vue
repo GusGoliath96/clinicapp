@@ -5,7 +5,7 @@ import { api } from '../api/client.js';
 import { getSocket } from '../realtime/socket.js';
 import { useAuth } from '../stores/auth.js';
 import { useApp } from '../stores/app.js';
-import { iniciais, corDe } from '../utils/ui.js';
+import { initials, colorFor } from '../utils/ui.js';
 import { usePointerDrag } from '../utils/drag.js';
 
 const router = useRouter();
@@ -45,7 +45,7 @@ const saudacao = computed(() => {
 });
 const pendentes = computed(() => conversas.value.filter((c) => c.status === 'pendente').length);
 
-async function carregar() {
+async function load() {
   conversas.value = (await api.get('/conversations')).data;
   app.pendentesRecepcao = pendentes.value;
 }
@@ -55,13 +55,13 @@ function upsert(conv) {
   else conversas.value.unshift(conv);
   app.pendentesRecepcao = pendentes.value;
 }
-function abrir() { router.push('/recepcao'); }
+function open() { router.push('/recepcao'); }
 
 onMounted(async () => {
-  await carregar();
+  await load();
   socket = getSocket();
   socket.on('conversation:update', upsert);
-  socket.on('message:new', carregar);
+  socket.on('message:new', load);
 });
 onUnmounted(() => { socket?.off('conversation:update'); socket?.off('message:new'); });
 </script>
@@ -97,10 +97,10 @@ onUnmounted(() => { socket?.off('conversation:update'); socket?.off('message:new
           class="hub-card" :class="[e.score, { dragging: dragCard?.id === c.id }]"
           :style="e.id === 'quentes' ? 'cursor:default;' : ''"
           @pointerdown="startDrag(c, $event)"
-          @click="!justDragged && abrir()"
+          @click="!justDragged && open()"
         >
           <div class="hub-card-line1">
-            <span class="hub-card-av" :style="{ background: corDe(c.nome_exibicao || c.telefone) }">{{ iniciais(c.nome_exibicao || c.telefone) }}</span>
+            <span class="hub-card-av" :style="{ background: colorFor(c.nome_exibicao || c.telefone) }">{{ initials(c.nome_exibicao || c.telefone) }}</span>
             <span class="hub-card-nome">{{ c.nome_exibicao || c.telefone }}</span>
             <span v-if="c.unread" class="hub-card-tag">{{ c.unread }} nova(s)</span>
           </div>

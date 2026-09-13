@@ -17,25 +17,25 @@ const routes = [
   { path: '/login', name: 'login', component: () => import('../views/Login.vue'), meta: { public: true } },
   {
     path: '/verificar-codigo', name: 'verificar-codigo',
-    component: () => import('../views/CodigoVerificacao.vue'), meta: { public: true },
+    component: () => import('../views/VerifyCode.vue'), meta: { public: true },
   },
   {
     path: '/esqueci-senha', name: 'esqueci-senha',
-    component: () => import('../views/EsqueciSenha.vue'), meta: { public: true },
+    component: () => import('../views/ForgotPassword.vue'), meta: { public: true },
   },
   {
     path: '/redefinir-senha', name: 'redefinir-senha',
-    component: () => import('../views/RedefinirSenha.vue'), meta: { public: true },
+    component: () => import('../views/ResetPassword.vue'), meta: { public: true },
   },
 
   {
     path: '/recepcao', name: 'recepcao',
-    component: () => import('../views/Recepcao.vue'),
+    component: () => import('../views/Reception.vue'),
     meta: { auth: true, title: 'Recepção', breadcrumb: 'Atendimento via WhatsApp' },
   },
   {
     path: '/agenda', name: 'agenda',
-    component: () => import('../views/Agenda.vue'),
+    component: () => import('../views/Schedule.vue'),
     meta: { auth: true, title: 'Agenda', breadcrumb: 'Calendário de consultas' },
   },
   {
@@ -45,17 +45,17 @@ const routes = [
   },
   {
     path: '/pacientes', name: 'pacientes',
-    component: () => import('../views/Pacientes.vue'),
+    component: () => import('../views/Patients.vue'),
     meta: { auth: true, title: 'Pacientes', breadcrumb: 'Card de Vida' },
   },
   {
     path: '/config', name: 'config',
-    component: () => import('../views/Configuracoes.vue'),
+    component: () => import('../views/Settings.vue'),
     meta: { auth: true, title: 'Configurações', breadcrumb: 'Administração' },
   },
   {
     path: '/clinico', name: 'clinico',
-    component: () => import('../views/Atendimento.vue'),
+    component: () => import('../views/ClinicalCare.vue'),
     meta: { auth: true, title: 'Atendimento Clínico', breadcrumb: 'Prontuário' },
   },
 

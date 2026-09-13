@@ -17,11 +17,11 @@ export function initSocket(httpServer) {
       // Mesma revogação do requireAuth. Sem isto o socket seria a porta de trás: um token
       // já derrubado continuaria recebendo mensagens e agenda do tenant em tempo real.
       const { rows } = await query(
-        'SELECT token_version, ativo FROM users WHERE id = $1',
+        'SELECT token_version, active FROM users WHERE id = $1',
         [payload.sub],
       );
       const user = rows[0];
-      if (!user || !user.ativo || user.token_version !== payload.tv) {
+      if (!user || !user.active || user.token_version !== payload.tv) {
         return next(new Error('unauthorized'));
       }
 

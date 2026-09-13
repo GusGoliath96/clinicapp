@@ -2,10 +2,10 @@ import { Router } from 'express';
 import crypto from 'node:crypto';
 import { query } from '../config/db.js';
 import { env } from '../config/env.js';
-import { conferirSenha, hashSenha, validarPolitica, HASH_FALSO } from '../config/senha.js';
+import { verifyPassword, hashPassword, validatePolicy, DUMMY_HASH } from '../config/password.js';
 import { signToken, requireAuth } from '../middleware/auth.js';
-import { checarBloqueio, registrarTentativa } from '../middleware/rateLimit.js';
-import { enviarCodigo2fa, enviarLinkReset } from '../integrations/mailer.js';
+import { checkLockout, recordAttempt } from '../middleware/rateLimit.js';
+import { sendTwoFactorCode, sendResetLink } from '../integrations/mailer.js';
 
 // Todas as rotas daqui respondem 200, 400 ou 429 — nunca 401. O interceptor do axios
 // redireciona para /login em qualquer 401, o que jogaria o usuário para fora da tela do
@@ -13,241 +13,243 @@ import { enviarCodigo2fa, enviarLinkReset } from '../integrations/mailer.js';
 
 const router = Router();
 
-const COOKIE_DISPOSITIVO = 'cd_trust';
-const DIAS_DISPOSITIVO = 30;
-const MINUTOS_2FA = 10;
-const MINUTOS_RESET = 30;
-const MAX_TENTATIVAS = 5;
+const DEVICE_COOKIE = 'cd_trust';
+const DEVICE_DAYS = 30;
+const TWO_FACTOR_MINUTES = 10;
+const RESET_MINUTES = 30;
+const MAX_ATTEMPTS = 5;
 
-const normalizarEmail = (v) => String(v || '').trim().toLowerCase();
+const normalizeEmail = (v) => String(v || '').trim().toLowerCase();
 
-const ehUuid = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || ''));
+const isUuid = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || ''));
 
 // O id da linha entra no hash: sem ele, duas linhas com o mesmo código de 6 dígitos teriam
 // o mesmo hash, e uma tabela pré-calculada dos 10^6 códigos possíveis quebraria todos de
 // uma só vez.
-const hashSegredo = (id, segredo) => crypto.createHash('sha256').update(`${id}:${segredo}`).digest('hex');
+const hashSecret = (id, secret) => crypto.createHash('sha256').update(`${id}:${secret}`).digest('hex');
 
 // Mesmo padrão de serviceAuth.js: confere o comprimento antes, depois compara sem revelar
 // em que byte a diferença apareceu.
-function confere(a, b) {
+function matches(a, b) {
   const x = Buffer.from(String(a));
   const y = Buffer.from(String(b));
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
 
-function mascarar(email) {
-  const [local, dominio] = String(email).split('@');
-  return `${local.slice(0, 2)}${'*'.repeat(Math.max(1, local.length - 2))}@${dominio}`;
+function maskEmail(email) {
+  const [local, domain] = String(email).split('@');
+  return `${local.slice(0, 2)}${'*'.repeat(Math.max(1, local.length - 2))}@${domain}`;
 }
 
 // O id é gerado aqui, e não pelo banco, porque ele precisa entrar no hash do segredo.
-async function criarChallenge({ tipo, user, segredo, minutos, ip }) {
+async function createChallenge({ kind, user, secret, minutes, ip }) {
   const id = crypto.randomUUID();
   await query(
-    `INSERT INTO auth_challenges (id, tenant_id, user_id, tipo, codigo_hash, expires_at, ip)
+    `INSERT INTO auth_challenges (id, tenant_id, user_id, kind, code_hash, expires_at, ip)
      VALUES ($1, $2, $3, $4, $5, now() + make_interval(mins => $6), $7)`,
-    [id, user.tenant_id, user.id, tipo, hashSegredo(id, segredo), minutos, ip],
+    [id, user.tenant_id, user.id, kind, hashSecret(id, secret), minutes, ip],
   );
   return id;
 }
 
 // Incrementa e valida na mesma instrução: sem isso, várias requisições simultâneas leriam
 // o mesmo contador e o limite de tentativas seria contornável.
-async function consumirChallenge(id, tipo) {
-  if (!ehUuid(id)) return null;
+async function consumeChallenge(id, kind) {
+  if (!isUuid(id)) return null;
   const { rows } = await query(
-    `UPDATE auth_challenges SET tentativas = tentativas + 1
-      WHERE id = $1 AND tipo = $2 AND used_at IS NULL
-        AND expires_at > now() AND tentativas < $3
+    `UPDATE auth_challenges SET attempts = attempts + 1
+      WHERE id = $1 AND kind = $2 AND used_at IS NULL
+        AND expires_at > now() AND attempts < $3
       RETURNING *`,
-    [id, tipo, MAX_TENTATIVAS],
+    [id, kind, MAX_ATTEMPTS],
   );
   return rows[0] || null;
 }
 
-async function lembrarDispositivo(req, res, user) {
+async function rememberDevice(req, res, user) {
   const id = crypto.randomUUID();
-  const segredo = crypto.randomBytes(32).toString('base64url');
-  const rotulo = String(req.headers['user-agent'] || '').slice(0, 120) || null;
+  const secret = crypto.randomBytes(32).toString('base64url');
+  const label = String(req.headers['user-agent'] || '').slice(0, 120) || null;
 
   await query(
-    `INSERT INTO trusted_devices (id, tenant_id, user_id, token_hash, rotulo, expires_at)
+    `INSERT INTO trusted_devices (id, tenant_id, user_id, token_hash, label, expires_at)
      VALUES ($1, $2, $3, $4, $5, now() + make_interval(days => $6))`,
-    [id, user.tenant_id, user.id, hashSegredo(id, segredo), rotulo, DIAS_DISPOSITIVO],
+    [id, user.tenant_id, user.id, hashSecret(id, secret), label, DEVICE_DAYS],
   );
 
-  res.cookie(COOKIE_DISPOSITIVO, `${id}.${segredo}`, {
+  res.cookie(DEVICE_COOKIE, `${id}.${secret}`, {
     httpOnly: true,
-    secure: env.producao,
+    secure: env.production,
     sameSite: 'lax',
     path: '/auth',
-    maxAge: DIAS_DISPOSITIVO * 86_400_000,
+    maxAge: DEVICE_DAYS * 86_400_000,
   });
 }
 
 // A amarração com user_id é o que impede que o cookie de um usuário sirva para pular o
 // segundo fator de outro.
-async function dispositivoConfiavel(req, userId) {
-  const [id, segredo] = String(req.cookies?.[COOKIE_DISPOSITIVO] || '').split('.');
-  if (!ehUuid(id) || !segredo) return false;
+async function isTrustedDevice(req, userId) {
+  const [id, secret] = String(req.cookies?.[DEVICE_COOKIE] || '').split('.');
+  if (!isUuid(id) || !secret) return false;
 
   const { rows } = await query(
     `SELECT token_hash FROM trusted_devices
       WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL AND expires_at > now()`,
     [id, userId],
   );
-  if (!rows[0] || !confere(rows[0].token_hash, hashSegredo(id, segredo))) return false;
+  if (!rows[0] || !matches(rows[0].token_hash, hashSecret(id, secret))) return false;
 
   await query('UPDATE trusted_devices SET last_used_at = now() WHERE id = $1', [id]);
   return true;
 }
 
-function buscarPorEmail(email) {
+function findByEmail(email) {
   return query(
-    'SELECT * FROM users WHERE lower(email) = $1 AND ativo = true ORDER BY created_at LIMIT 1',
+    'SELECT * FROM users WHERE lower(email) = $1 AND active = true ORDER BY created_at LIMIT 1',
     [email],
   );
 }
 
-async function concluirLogin(res, user, ip) {
-  await query('UPDATE users SET ultimo_login_em = now() WHERE id = $1', [user.id]);
-  registrarTentativa({
-    email: user.email.toLowerCase(), ip, sucesso: true, userId: user.id, tenantId: user.tenant_id,
+async function completeLogin(res, user, ip) {
+  await query('UPDATE users SET last_login_at = now() WHERE id = $1', [user.id]);
+  recordAttempt({
+    email: user.email.toLowerCase(), ip, success: true, userId: user.id, tenantId: user.tenant_id,
   });
   res.json({
     status: 'ok',
     token: signToken(user),
     user: {
-      id: user.id, nome: user.nome, email: user.email,
-      papel: user.papel, professional_id: user.professional_id,
+      id: user.id, nome: user.name, email: user.email,
+      papel: user.role, professional_id: user.professional_id,
     },
   });
 }
 
 router.post('/login', async (req, res) => {
-  const email = normalizarEmail(req.body?.email);
-  const senha = req.body?.senha;
+  const email = normalizeEmail(req.body?.email);
+  const password = req.body?.senha;
   const ip = req.ip || 'desconhecido';
 
-  if (!email || !senha) return res.status(400).json({ error: 'email e senha são obrigatórios' });
+  if (!email || !password) return res.status(400).json({ error: 'email e senha são obrigatórios' });
 
-  const bloqueio = await checarBloqueio(email, ip);
-  if (bloqueio.bloqueado) {
-    registrarTentativa({ email, ip, motivo: 'bloqueado' });
-    res.set('Retry-After', String(bloqueio.minutos * 60));
+  const lockout = await checkLockout(email, ip);
+  if (lockout.locked) {
+    recordAttempt({ email, ip, reason: 'bloqueado' });
+    res.set('Retry-After', String(lockout.minutes * 60));
     return res.status(429).json({
-      error: `Muitas tentativas. Tente novamente em ${bloqueio.minutos} minuto(s).`,
+      error: `Muitas tentativas. Tente novamente em ${lockout.minutes} minuto(s).`,
     });
   }
 
-  const { rows } = await buscarPorEmail(email);
+  const { rows } = await findByEmail(email);
   const user = rows[0];
 
   // O bcrypt roda mesmo quando o e-mail não existe: se só rodasse para usuários reais, a
   // diferença no tempo de resposta diria quais e-mails estão cadastrados.
-  const senhaOk = await conferirSenha(String(senha), user?.senha_hash || HASH_FALSO);
-  if (!user || !senhaOk) {
-    registrarTentativa({
-      email, ip, motivo: user ? 'senha' : 'usuario', userId: user?.id, tenantId: user?.tenant_id,
+  const passwordOk = await verifyPassword(String(password), user?.password_hash || DUMMY_HASH);
+  if (!user || !passwordOk) {
+    recordAttempt({
+      email, ip, reason: user ? 'senha' : 'usuario', userId: user?.id, tenantId: user?.tenant_id,
     });
     return res.status(400).json({ error: 'Credenciais inválidas' });
   }
 
-  if (!env.twoFactor || (await dispositivoConfiavel(req, user.id))) {
-    return concluirLogin(res, user, ip);
+  if (!env.twoFactor || (await isTrustedDevice(req, user.id))) {
+    return completeLogin(res, user, ip);
   }
 
-  const codigo = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
-  const challengeId = await criarChallenge({ tipo: '2fa', user, segredo: codigo, minutos: MINUTOS_2FA, ip });
+  const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+  const challengeId = await createChallenge({
+    kind: '2fa', user, secret: code, minutes: TWO_FACTOR_MINUTES, ip,
+  });
 
   // Sem await de propósito: o envio leva centenas de milissegundos e o tempo de resposta
   // do login não deve depender do provedor de e-mail.
-  enviarCodigo2fa(user.email, codigo)
+  sendTwoFactorCode(user.email, code)
     .catch((e) => console.error('[auth.login] envio do código falhou:', e.message));
 
   res.json({
     status: '2fa',
     challengeId,
-    emailMascarado: mascarar(user.email),
-    expiraEm: new Date(Date.now() + MINUTOS_2FA * 60_000).toISOString(),
+    emailMascarado: maskEmail(user.email),
+    expiraEm: new Date(Date.now() + TWO_FACTOR_MINUTES * 60_000).toISOString(),
   });
 });
 
 router.post('/2fa/verificar', async (req, res) => {
-  const { challengeId, codigo, lembrarDispositivo: lembrar } = req.body || {};
+  const { challengeId, codigo: code, lembrarDispositivo: remember } = req.body || {};
   const ip = req.ip || 'desconhecido';
-  const recusa = { error: 'Código inválido ou expirado. Solicite um novo.' };
+  const rejection = { error: 'Código inválido ou expirado. Solicite um novo.' };
 
-  const ch = await consumirChallenge(challengeId, '2fa');
-  if (!ch) return res.status(400).json(recusa);
+  const challenge = await consumeChallenge(challengeId, '2fa');
+  if (!challenge) return res.status(400).json(rejection);
 
-  const { rows } = await query('SELECT * FROM users WHERE id = $1 AND ativo = true', [ch.user_id]);
+  const { rows } = await query('SELECT * FROM users WHERE id = $1 AND active = true', [challenge.user_id]);
   const user = rows[0];
 
-  if (!user || !confere(ch.codigo_hash, hashSegredo(ch.id, String(codigo || '')))) {
+  if (!user || !matches(challenge.code_hash, hashSecret(challenge.id, String(code || '')))) {
     if (user) {
-      registrarTentativa({
-        email: user.email.toLowerCase(), ip, motivo: '2fa', userId: user.id, tenantId: user.tenant_id,
+      recordAttempt({
+        email: user.email.toLowerCase(), ip, reason: '2fa', userId: user.id, tenantId: user.tenant_id,
       });
     }
-    return res.status(400).json(recusa);
+    return res.status(400).json(rejection);
   }
 
-  await query('UPDATE auth_challenges SET used_at = now() WHERE id = $1', [ch.id]);
-  if (lembrar) await lembrarDispositivo(req, res, user);
+  await query('UPDATE auth_challenges SET used_at = now() WHERE id = $1', [challenge.id]);
+  if (remember) await rememberDevice(req, res, user);
 
-  return concluirLogin(res, user, ip);
+  return completeLogin(res, user, ip);
 });
 
 router.post('/2fa/reenviar', async (req, res) => {
   const { challengeId } = req.body || {};
-  const expirada = { error: 'Sessão expirada. Faça o login novamente.' };
-  if (!ehUuid(challengeId)) return res.status(400).json(expirada);
+  const expired = { error: 'Sessão expirada. Faça o login novamente.' };
+  if (!isUuid(challengeId)) return res.status(400).json(expired);
 
   const { rows } = await query(
     `SELECT * FROM auth_challenges
-      WHERE id = $1 AND tipo = '2fa' AND created_at > now() - interval '30 minutes'`,
+      WHERE id = $1 AND kind = '2fa' AND created_at > now() - interval '30 minutes'`,
     [challengeId],
   );
-  const ch = rows[0];
-  if (!ch) return res.status(400).json(expirada);
+  const challenge = rows[0];
+  if (!challenge) return res.status(400).json(expired);
 
-  const { rows: [limite] } = await query(
-    `SELECT count(*) AS total, max(created_at) AS ultimo
+  const { rows: [limit] } = await query(
+    `SELECT count(*) AS total, max(created_at) AS last_at
        FROM auth_challenges
-      WHERE user_id = $1 AND tipo = '2fa' AND created_at > now() - interval '15 minutes'`,
-    [ch.user_id],
+      WHERE user_id = $1 AND kind = '2fa' AND created_at > now() - interval '15 minutes'`,
+    [challenge.user_id],
   );
-  if (Number(limite.total) >= 4) {
+  if (Number(limit.total) >= 4) {
     return res.status(429).json({ error: 'Muitos reenvios. Faça o login novamente em alguns minutos.' });
   }
-  if (Date.now() - new Date(limite.ultimo).getTime() < 60_000) {
+  if (Date.now() - new Date(limit.last_at).getTime() < 60_000) {
     return res.status(429).json({ error: 'Aguarde um minuto para pedir outro código.' });
   }
 
-  const { rows: [user] } = await query('SELECT * FROM users WHERE id = $1 AND ativo = true', [ch.user_id]);
-  if (!user) return res.status(400).json(expirada);
+  const { rows: [user] } = await query('SELECT * FROM users WHERE id = $1 AND active = true', [challenge.user_id]);
+  if (!user) return res.status(400).json(expired);
 
-  await query('UPDATE auth_challenges SET used_at = now() WHERE id = $1 AND used_at IS NULL', [ch.id]);
+  await query('UPDATE auth_challenges SET used_at = now() WHERE id = $1 AND used_at IS NULL', [challenge.id]);
 
-  const codigo = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
-  const novoId = await criarChallenge({
-    tipo: '2fa', user, segredo: codigo, minutos: MINUTOS_2FA, ip: req.ip || 'desconhecido',
+  const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+  const newId = await createChallenge({
+    kind: '2fa', user, secret: code, minutes: TWO_FACTOR_MINUTES, ip: req.ip || 'desconhecido',
   });
-  enviarCodigo2fa(user.email, codigo)
-    .catch((e) => console.error('[auth.reenviar] envio do código falhou:', e.message));
+  sendTwoFactorCode(user.email, code)
+    .catch((e) => console.error('[auth.resend] envio do código falhou:', e.message));
 
   res.json({
     status: '2fa',
-    challengeId: novoId,
-    emailMascarado: mascarar(user.email),
-    expiraEm: new Date(Date.now() + MINUTOS_2FA * 60_000).toISOString(),
+    challengeId: newId,
+    emailMascarado: maskEmail(user.email),
+    expiraEm: new Date(Date.now() + TWO_FACTOR_MINUTES * 60_000).toISOString(),
   });
 });
 
 router.post('/esqueci-senha', async (req, res) => {
-  const email = normalizarEmail(req.body?.email);
+  const email = normalizeEmail(req.body?.email);
 
   // Responde antes de fazer qualquer trabalho: se a resposta viesse depois da busca e do
   // envio, o tempo até ela revelaria se o e-mail existe.
@@ -255,76 +257,77 @@ router.post('/esqueci-senha', async (req, res) => {
   if (!email) return;
 
   try {
-    const { rows } = await buscarPorEmail(email);
+    const { rows } = await findByEmail(email);
     const user = rows[0];
     if (!user) return;
 
-    const segredo = crypto.randomBytes(32).toString('base64url');
-    const id = await criarChallenge({
-      tipo: 'reset', user, segredo, minutos: MINUTOS_RESET, ip: req.ip || 'desconhecido',
+    const secret = crypto.randomBytes(32).toString('base64url');
+    const id = await createChallenge({
+      kind: 'reset', user, secret, minutes: RESET_MINUTES, ip: req.ip || 'desconhecido',
     });
-    await enviarLinkReset(user.email, `${env.appUrl}/redefinir-senha?token=${id}.${segredo}`);
+    await sendResetLink(user.email, `${env.appUrl}/redefinir-senha?token=${id}.${secret}`);
   } catch (e) {
-    console.error('[auth.esqueci-senha]', e.message);
+    console.error('[auth.forgot-password]', e.message);
   }
 });
 
 // Valida sem consumir, para a tela avisar "link expirado" antes de o usuário digitar.
-async function acharReset(token) {
-  const [id, segredo] = String(token || '').split('.');
-  if (!ehUuid(id) || !segredo) return null;
+async function findResetChallenge(token) {
+  const [id, secret] = String(token || '').split('.');
+  if (!isUuid(id) || !secret) return null;
 
   const { rows } = await query(
     `SELECT * FROM auth_challenges
-      WHERE id = $1 AND tipo = 'reset' AND used_at IS NULL AND expires_at > now()`,
+      WHERE id = $1 AND kind = 'reset' AND used_at IS NULL AND expires_at > now()`,
     [id],
   );
-  const ch = rows[0];
-  if (!ch || !confere(ch.codigo_hash, hashSegredo(id, segredo))) return null;
-  return ch;
+  const challenge = rows[0];
+  if (!challenge || !matches(challenge.code_hash, hashSecret(id, secret))) return null;
+  return challenge;
 }
 
 router.get('/redefinir-senha/validar', async (req, res) => {
-  res.json({ valido: Boolean(await acharReset(req.query.token)) });
+  res.json({ valido: Boolean(await findResetChallenge(req.query.token)) });
 });
 
 router.post('/redefinir-senha', async (req, res) => {
-  const { token, senha } = req.body || {};
-  const recusa = { error: 'Link inválido ou expirado. Peça outro.' };
+  const { token, senha: password } = req.body || {};
+  const rejection = { error: 'Link inválido ou expirado. Peça outro.' };
 
-  const ch = await acharReset(token);
-  if (!ch) return res.status(400).json(recusa);
+  const challenge = await findResetChallenge(token);
+  if (!challenge) return res.status(400).json(rejection);
 
-  const { rows } = await query('SELECT email FROM users WHERE id = $1', [ch.user_id]);
-  const erro = validarPolitica(senha, { email: rows[0]?.email });
-  if (erro) return res.status(400).json({ error: erro });
+  const { rows } = await query('SELECT email FROM users WHERE id = $1', [challenge.user_id]);
+  const weak = validatePolicy(password, { email: rows[0]?.email });
+  if (weak) return res.status(400).json({ error: weak });
 
   // Marca o uso primeiro: se o mesmo link for enviado duas vezes ao mesmo tempo, só uma
   // das requisições encontra a linha ainda não usada.
   const { rowCount } = await query(
     'UPDATE auth_challenges SET used_at = now() WHERE id = $1 AND used_at IS NULL',
-    [ch.id],
+    [challenge.id],
   );
-  if (!rowCount) return res.status(400).json(recusa);
+  if (!rowCount) return res.status(400).json(rejection);
 
   await query(
-    `UPDATE users SET senha_hash = $2, senha_alterada_em = now(),
+    `UPDATE users SET password_hash = $2, password_changed_at = now(),
             token_version = token_version + 1, updated_at = now()
       WHERE id = $1`,
-    [ch.user_id, await hashSenha(senha)],
+    [challenge.user_id, await hashPassword(password)],
   );
 
   // Quem redefine a senha costuma estar reagindo a um acesso indevido: derrubar as sessões
   // e os dispositivos lembrados é o que efetivamente expulsa quem já estava dentro.
-  await query('UPDATE trusted_devices SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL', [ch.user_id]);
-  await query("UPDATE auth_challenges SET used_at = now() WHERE user_id = $1 AND used_at IS NULL", [ch.user_id]);
+  await query('UPDATE trusted_devices SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL', [challenge.user_id]);
+  await query('UPDATE auth_challenges SET used_at = now() WHERE user_id = $1 AND used_at IS NULL', [challenge.user_id]);
 
   res.json({ ok: true });
 });
 
 router.get('/me', requireAuth, async (req, res) => {
   const { rows } = await query(
-    'SELECT id, nome, email, papel, professional_id FROM users WHERE id = $1',
+    `SELECT id, name AS nome, email, role AS papel, professional_id
+       FROM users WHERE id = $1`,
     [req.user.id],
   );
   res.json(rows[0] || null);

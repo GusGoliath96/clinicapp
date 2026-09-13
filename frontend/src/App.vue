@@ -72,13 +72,13 @@ const badgeRec = computed(() => app.pendentesRecepcao);
 function go(page) { router.push(`/${page}`); }
 function sair() { auth.logout(); router.push('/login'); }
 
-function novoAgendamento() {
-  app.abrirNovoAgendamento = true;      // a Agenda observa esse sinal e abre o modal
+function newAppointment() {
+  app.openNewAppointment = true;      // a Agenda observa esse sinal e abre o modal
   if (route.name !== 'agenda') router.push('/agenda');
 }
 
-function novoPaciente() {
-  app.abrirNovoPaciente = true;         // Pacientes observa esse sinal e abre o modal
+function newPatient() {
+  app.openNewPatient = true;         // Pacientes observa esse sinal e abre o modal
   if (route.name !== 'pacientes') router.push('/pacientes');
 }
 </script>
@@ -144,8 +144,8 @@ function novoPaciente() {
         </div>
         <div class="topbar-actions">
           <input type="text" class="search-input" placeholder="Buscar paciente, agenda..." />
-          <button class="btn btn-secondary" @click="novoPaciente">+ Paciente</button>
-          <button class="btn btn-primary" @click="novoAgendamento">+ Agendamento</button>
+          <button class="btn btn-secondary" @click="newPatient">+ Paciente</button>
+          <button class="btn btn-primary" @click="newAppointment">+ Agendamento</button>
         </div>
       </header>
       <div class="content">

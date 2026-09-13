@@ -16,7 +16,7 @@ if (!email) {
 }
 
 const { rows } = await pool.query(
-  'SELECT * FROM users WHERE lower(email) = $1 AND ativo = true ORDER BY created_at LIMIT 1',
+  'SELECT * FROM users WHERE lower(email) = $1 AND active = true ORDER BY created_at LIMIT 1',
   [email],
 );
 if (!rows[0]) {
@@ -24,7 +24,7 @@ if (!rows[0]) {
   process.exit(1);
 }
 
-console.log(`\n  Token para ${rows[0].email} (${rows[0].papel}):\n`);
+console.log(`\n  Token para ${rows[0].email} (${rows[0].role}):\n`);
 console.log(`  ${signToken(rows[0])}\n`);
 console.log('  No navegador, em localStorage, grave-o na chave "token" e recarregue.\n');
 

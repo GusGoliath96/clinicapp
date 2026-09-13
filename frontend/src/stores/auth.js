@@ -2,45 +2,48 @@ import { defineStore } from 'pinia';
 import { api } from '../api/client.js';
 import { disconnectSocket } from '../realtime/socket.js';
 
+// O payload da API segue em português (senha, codigo, papel): é contrato com o backend e
+// com o motor de IA. Só os identificadores daqui estão em inglês.
+
 export const useAuth = defineStore('auth', {
   state: () => ({
     token: localStorage.getItem('token') || null,
     user: JSON.parse(localStorage.getItem('user') || 'null'),
     // Desafio de 2FA em andamento. Fica só em memória de propósito: é de vida curta e
     // não deve sobreviver a um reload nem ficar legível para scripts da página.
-    desafio: null,
+    challenge: null,
   }),
   getters: {
     isAuthenticated: (s) => Boolean(s.token),
   },
   actions: {
     // Devolve 'ok' (entrou) ou '2fa' (falta o código). Quem chama decide para onde ir.
-    async login(email, senha) {
-      const { data } = await api.post('/auth/login', { email, senha });
+    async login(email, password) {
+      const { data } = await api.post('/auth/login', { email, senha: password });
       if (data.status === '2fa') {
-        this.desafio = { id: data.challengeId, email: data.emailMascarado };
+        this.challenge = { id: data.challengeId, email: data.emailMascarado };
         return '2fa';
       }
-      this.guardarSessao(data);
+      this.saveSession(data);
       return 'ok';
     },
 
-    async verificar2fa(codigo, lembrarDispositivo) {
+    async verifyTwoFactor(code, rememberDevice) {
       const { data } = await api.post('/auth/2fa/verificar', {
-        challengeId: this.desafio?.id,
-        codigo,
-        lembrarDispositivo,
+        challengeId: this.challenge?.id,
+        codigo: code,
+        lembrarDispositivo: rememberDevice,
       });
-      this.guardarSessao(data);
-      this.desafio = null;
+      this.saveSession(data);
+      this.challenge = null;
     },
 
-    async reenviar2fa() {
-      const { data } = await api.post('/auth/2fa/reenviar', { challengeId: this.desafio?.id });
-      this.desafio = { id: data.challengeId, email: data.emailMascarado };
+    async resendTwoFactor() {
+      const { data } = await api.post('/auth/2fa/reenviar', { challengeId: this.challenge?.id });
+      this.challenge = { id: data.challengeId, email: data.emailMascarado };
     },
 
-    guardarSessao(data) {
+    saveSession(data) {
       this.token = data.token;
       this.user = data.user;
       localStorage.setItem('token', data.token);
@@ -53,7 +56,7 @@ export const useAuth = defineStore('auth', {
     logout() {
       this.token = null;
       this.user = null;
-      this.desafio = null;
+      this.challenge = null;
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       disconnectSocket();
